@@ -1,0 +1,35 @@
+[
+  {
+    "id": "block_send_seen",
+    "enabled": false,
+    "class": "REPLACE_WITH_REAL_CLASS",
+    "selector": "REPLACE:withRealSelector:",
+    "action": "skip",
+    "configKey": "block_send_seen"
+  },
+  {
+    "id": "silent_typing",
+    "enabled": false,
+    "class": "REPLACE_WITH_REAL_CLASS",
+    "selector": "REPLACE:withRealSelector:",
+    "action": "skip",
+    "configKey": "enable_silent_typing"
+  },
+  {
+    "id": "anti_recall_delete",
+    "enabled": false,
+    "class": "REPLACE_WITH_REAL_CLASS",
+    "selector": "REPLACE:handleJSON:",
+    "action": "antirecall",
+    "argIndex": 1
+  },
+  {
+    "id": "ttl_override",
+    "enabled": false,
+    "class": "REPLACE_WITH_REAL_CLASS",
+    "selector": "REPLACE:returnsTTL:",
+    "classMethod": true,
+    "action": "ttl",
+    "configKey": "enable_msg_ttl_override"
+  }
+]

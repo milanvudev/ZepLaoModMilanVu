@@ -1,0 +1,9 @@
+Package: com.milanvu.zeplaomod.ios
+Name: ZépLàoModMilanVu
+Depends: mobilesubstrate
+Version: 1.0.0
+Architecture: iphoneos-arm
+Description: Port of ZaloXposed to iOS: anti-recall/delete, hide seen/typing, block ads/tracking, TTL override.
+Maintainer: MilanVu
+Author: ElectroHeavenVN (ZaloXposed Android module), iOS port
+Section: Tweaks
