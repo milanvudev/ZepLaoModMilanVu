@@ -59,6 +59,23 @@ static UIViewController *ZXTopVC(void)
         self.navigationItem.rightBarButtonItem =
             [[UIBarButtonItem alloc] initWithTitle:@"Sao chép" style:UIBarButtonItemStylePlain target:self action:@selector(copyAll)];
 }
+- (void)viewWillAppear:(BOOL)animated
+{
+    [super viewWillAppear:animated];
+    // plain white text page: give the bar an opaque dark background so white titles/buttons stay readable
+    UINavigationBar *bar = self.navigationController.navigationBar;
+    bar.prefersLargeTitles = NO;
+    bar.tintColor = UIColor.whiteColor;
+    if (@available(iOS 13.0, *)) {
+        UINavigationBarAppearance *ap = [UINavigationBarAppearance new];
+        [ap configureWithOpaqueBackground];
+        ap.backgroundColor = [UIColor colorWithRed:0.08 green:0.16 blue:0.34 alpha:1];
+        ap.titleTextAttributes = @{ NSForegroundColorAttributeName: UIColor.whiteColor };
+        bar.standardAppearance = ap;
+        bar.scrollEdgeAppearance = ap;
+        bar.compactAppearance = ap;
+    }
+}
 - (void)copyAll
 {
     [UIPasteboard generalPasteboard].string = self.textView.text ?: @"";
@@ -304,65 +321,54 @@ static NSString *ZXBackgroundPath(void)
 
 // ---------------------------------------------------------------- settings table
 
-@interface ZXSettingsViewController : UITableViewController <UIImagePickerControllerDelegate, UINavigationControllerDelegate>
-@property (nonatomic, strong) NSArray<NSDictionary *> *sections;
-@property (nonatomic, strong) NSMutableSet<NSIndexPath *> *shownRows;
-@end
-
-@implementation ZXSettingsViewController
-
-- (instancetype)init
+static NSArray<NSDictionary *> *ZXCategories(void)
 {
-    self = [super initWithStyle:UITableViewStyleGrouped];
-    if (self) {
-        self.title = @"ZépLàoModMilanVu";
-        self.sections = @[
-            @{ @"title": @"Giao diện", @"items": @[
-                @{ @"key": ZXK_LIQUID_GLASS, @"title": @"Liquid Glass", @"sub": @"Thanh tiêu đề và nhãn nhóm dùng kính (iOS 26 dùng kính thật, bản cũ dùng làm mờ). Thẻ nội dung giữ nền đặc để dễ đọc." },
-                @{ @"action": @"bgpick", @"title": @"Chỉnh sửa ảnh nền", @"sub": @"Chọn ảnh từ thư viện, kéo/thu phóng để cắt" },
-                @{ @"action": @"bgreset", @"title": @"Dùng lại ảnh nền mặc định" },
-            ]},
-            @{ @"title": @"Quyền riêng tư", @"items": @[
-                @{ @"key": ZXK_BLOCK_SEEN, @"title": @"Chặn gửi trạng thái \"Đã xem\"", @"sub": @"Cần rule 'block_send_seen' trong rules.json" },
-                @{ @"key": ZXK_SILENT_TYPING, @"title": @"Không gửi trạng thái \"Đang nhập\"", @"sub": @"Cần rule 'silent_typing' trong rules.json" },
-            ]},
-            @{ @"title": @"Chống thu hồi / xóa tin nhắn", @"items": @[
-                @{ @"key": ZXK_ANTI_RECALL, @"title": @"Xem tin nhắn bị thu hồi", @"sub": @"Giữ lại tin khi người khác thu hồi" },
-                @{ @"key": ZXK_SHOW_CONTENT, @"title": @"Hiện nội dung tin bị thu hồi/xóa", @"sub": @"Lưu tạm nội dung tin nhận được trên máy" },
-                @{ @"key": ZXK_RECALL_NOTE, @"title": @"Ghi chú mờ \"đã thu hồi\" trên tin", @"sub": @"Hiện nhãn nhỏ trên tin được giữ lại" },
-                @{ @"action": @"clearmarks", @"title": @"Xóa danh sách tin đã đánh dấu" },
-                @{ @"action": @"history", @"title": @"Lịch sử tin bị thu hồi / xóa" },
-                @{ @"action": @"clearcache", @"title": @"Xóa bộ nhớ đệm tin nhắn" },
-                @{ @"key": ZXK_ANTI_RECALL_INCLUDE_ME, @"title": @"Áp dụng cả tin do mình thu hồi" },
-                @{ @"key": ZXK_ANTI_DELETE, @"title": @"Xem tin nhắn bị xóa", @"sub": @"Giữ lại tin khi bị xóa (cần rule phù hợp)" },
-                @{ @"key": ZXK_ANTI_DELETE_INCLUDE_ME, @"title": @"Áp dụng cả tin do mình xóa" },
-                @{ @"action": @"uid", @"title": @"User ID của bạn", @"sub": @"Dùng để phân biệt tin của mình" },
-            ]},
-            @{ @"title": @"Quảng cáo & theo dõi", @"items": @[
-                @{ @"key": ZXK_BLOCK_ADS, @"title": @"Chặn endpoint quảng cáo" },
-                @{ @"key": ZXK_DISABLE_TRACKING, @"title": @"Tắt tracking của Zalo" },
-                @{ @"key": ZXK_BLOCK_QOS, @"title": @"Chặn QoS / log chất lượng" },
-                @{ @"key": ZXK_DISABLE_FIREBASE, @"title": @"Tắt Firebase logging" },
-            ]},
-            @{ @"title": @"Ảnh/file & tin tự hủy (TTL)", @"items": @[
-                @{ @"key": ZXK_DEFAULT_ORIGINAL, @"title": @"Mặc định gửi ảnh chất lượng Original", @"sub": @"Chọn sẵn Original khi mở bảng chế độ gửi" },
-                @{ @"key": ZXK_UNLIMITED_MEDIA, @"title": @"Gửi file/ảnh không giới hạn dung lượng", @"sub": @"Nâng giới hạn kích thước gửi đi" },
-                @{ @"key": ZXK_TTL_OVERRIDE, @"title": @"Ghi đè TTL", @"sub": @"Cần rule action 'ttl'" },
-                @{ @"action": @"ttl", @"title": @"Giá trị TTL (ms)" },
-            ]},
-            @{ @"title": @"Công cụ", @"items": @[
-                @{ @"action": @"scan", @"title": @"Quét class/method để tìm target hook" },
-                @{ @"action": @"viewscan", @"title": @"Xem / chia sẻ kết quả quét" },
-                @{ @"action": @"rules", @"title": @"Sửa rules.json" },
-                @{ @"action": @"log", @"title": @"Xem log" },
-                @{ @"action": @"exit", @"title": @"Thoát app để áp dụng rules mới" },
-            ]},
-        ];
-    }
-    return self;
+    return @[
+        @{ @"title": @"Quyền riêng tư", @"icon": @"eye.slash", @"desc": @"Ẩn đã xem, đang nhập", @"items": @[
+            @{ @"key": ZXK_BLOCK_SEEN, @"title": @"Chặn trạng thái \"Đã xem\"", @"sub": @"Người gửi không thấy bạn đã đọc tin", @"kw": @"seen ghost đã đọc xem" },
+            @{ @"key": ZXK_SILENT_TYPING, @"title": @"Ẩn trạng thái \"Đang nhập\"", @"sub": @"Người nhận không thấy bạn đang soạn tin", @"kw": @"typing đang soạn gõ" },
+        ]},
+        @{ @"title": @"Tin thu hồi & xóa", @"icon": @"arrow.uturn.backward.circle", @"desc": @"Giữ lại tin bị thu hồi", @"items": @[
+            @{ @"key": ZXK_ANTI_RECALL, @"title": @"Giữ tin bị thu hồi", @"sub": @"Tin vẫn hiện khi người khác thu hồi", @"kw": @"anti recall chống thu hồi" },
+            @{ @"key": ZXK_SHOW_CONTENT, @"title": @"Hiện nội dung tin bị thu hồi/xóa", @"sub": @"Lưu tạm nội dung tin nhận được trên máy" },
+            @{ @"key": ZXK_RECALL_NOTE, @"title": @"Nhãn \"đã thu hồi\" trên tin", @"sub": @"Hiện chữ nhỏ mờ trong khung tin được giữ lại" },
+            @{ @"key": ZXK_ANTI_RECALL_INCLUDE_ME, @"title": @"Áp dụng cả tin do mình thu hồi" },
+            @{ @"key": ZXK_ANTI_DELETE, @"title": @"Giữ tin bị xóa", @"sub": @"Cần xác nhận hoạt động trên máy bạn", @"kw": @"anti delete chống xóa" },
+            @{ @"key": ZXK_ANTI_DELETE_INCLUDE_ME, @"title": @"Áp dụng cả tin do mình xóa" },
+            @{ @"action": @"history", @"title": @"Lịch sử tin bị thu hồi / xóa" },
+            @{ @"action": @"clearmarks", @"title": @"Xóa danh sách tin đã đánh dấu" },
+            @{ @"action": @"clearcache", @"title": @"Xóa bộ nhớ đệm tin nhắn" },
+            @{ @"action": @"uid", @"title": @"User ID của bạn", @"sub": @"Dùng để phân biệt tin của mình" },
+        ]},
+        @{ @"title": @"Quảng cáo & theo dõi", @"icon": @"shield.lefthalf.filled", @"desc": @"Chặn quảng cáo, log", @"items": @[
+            @{ @"key": ZXK_BLOCK_ADS, @"title": @"Chặn quảng cáo", @"sub": @"Chặn các máy chủ quảng cáo của Zalo", @"kw": @"ads ad" },
+            @{ @"key": ZXK_DISABLE_TRACKING, @"title": @"Tắt theo dõi (tracking)", @"sub": @"Không gửi log hành vi về Zalo" },
+            @{ @"key": ZXK_BLOCK_QOS, @"title": @"Chặn log chất lượng (QoS)" },
+            @{ @"key": ZXK_DISABLE_FIREBASE, @"title": @"Tắt Firebase logging" },
+        ]},
+        @{ @"title": @"Ảnh, file & tự hủy", @"icon": @"photo.on.rectangle", @"desc": @"Original, file lớn, TTL", @"items": @[
+            @{ @"key": ZXK_DEFAULT_ORIGINAL, @"title": @"Gửi ảnh Original mặc định", @"sub": @"Chọn sẵn chất lượng gốc khi mở bảng chế độ gửi", @"kw": @"hd chất lượng ảnh" },
+            @{ @"key": ZXK_UNLIMITED_MEDIA, @"title": @"Nâng giới hạn dung lượng gửi", @"sub": @"Gửi file/ảnh lớn hơn mức mặc định", @"kw": @"file size không giới hạn" },
+            @{ @"key": ZXK_TTL_OVERRIDE, @"title": @"Đặt thời gian tự hủy (TTL)", @"sub": @"Áp dụng cho tin bạn gửi", @"kw": @"ttl tự hủy" },
+            @{ @"action": @"ttl", @"title": @"Giá trị TTL (ms)" },
+        ]},
+        @{ @"title": @"Giao diện", @"icon": @"paintbrush", @"desc": @"Nền, kính, hiệu ứng", @"items": @[
+            @{ @"key": ZXK_LIQUID_GLASS, @"title": @"Liquid Glass", @"sub": @"Nhãn nhóm và thanh trên dùng kính. Thẻ nội dung giữ nền đặc để dễ đọc.", @"kw": @"kính glass" },
+            @{ @"action": @"bgpick", @"title": @"Đổi ảnh nền", @"sub": @"Chọn ảnh từ thư viện, kéo và thu phóng để cắt", @"kw": @"background wallpaper" },
+            @{ @"action": @"bgreset", @"title": @"Dùng lại nền phong cảnh" },
+        ]},
+        @{ @"title": @"Công cụ nâng cao", @"icon": @"wrench.and.screwdriver", @"desc": @"Quét, rules, log", @"footer": @YES, @"items": @[
+            @{ @"action": @"scan", @"title": @"Quét class/method", @"sub": @"Tìm hàm có thể hook" },
+            @{ @"action": @"viewscan", @"title": @"Xem / chia sẻ kết quả quét" },
+            @{ @"action": @"rules", @"title": @"Sửa rules.json" },
+            @{ @"action": @"log", @"title": @"Xem log" },
+            @{ @"action": @"exit", @"title": @"Thoát app để áp dụng rules mới" },
+        ]},
+    ];
 }
 
-- (void)buildBackground
+/// Landscape (or user-chosen) backdrop shared by every screen of the menu.
+static UIView *ZXMakeBackdrop(void)
 {
     UIImage *custom = [UIImage imageWithContentsOfFile:ZXBackgroundPath()];
     if (custom) {
@@ -373,8 +379,7 @@ static NSString *ZXBackgroundPath(void)
         dim.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
         dim.backgroundColor = [UIColor colorWithWhite:0 alpha:0.22];
         [bg addSubview:dim];
-        self.tableView.backgroundView = bg;
-        return;
+        return bg;
     }
     UIImageView *bg = [[UIImageView alloc] initWithImage:ZXLandscapeImage(UIScreen.mainScreen.bounds.size)];
     bg.contentMode = UIViewContentModeScaleAspectFill;
@@ -393,7 +398,63 @@ static NSString *ZXBackgroundPath(void)
         a.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut];
         if (!ZXReduceMotion()) [cloud.layer addAnimation:a forKey:@"drift"];
     }
-    self.tableView.backgroundView = bg;
+    return bg;
+}
+
+static void ZXStyleNavBar(UINavigationBar *bar)
+{
+    bar.tintColor = UIColor.whiteColor;
+    if (@available(iOS 13.0, *)) {
+        NSDictionary *big = @{ NSForegroundColorAttributeName: UIColor.whiteColor };
+        NSDictionary *small = @{ NSForegroundColorAttributeName: UIColor.whiteColor,
+                                 NSFontAttributeName: [UIFont systemFontOfSize:17 weight:UIFontWeightSemibold] };
+        UINavigationBarAppearance *std = [UINavigationBarAppearance new];   // scrolled: blurred so content never runs under the title
+        if (ZXReduceTransparency()) {
+            [std configureWithOpaqueBackground];
+            std.backgroundColor = [UIColor colorWithRed:0.08 green:0.16 blue:0.34 alpha:1];
+        } else {
+            [std configureWithTransparentBackground];
+            std.backgroundEffect = [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemChromeMaterialDark];
+        }
+        std.titleTextAttributes = small;
+        std.largeTitleTextAttributes = big;
+        UINavigationBarAppearance *edge = [UINavigationBarAppearance new]; // at rest: transparent over the landscape
+        [edge configureWithTransparentBackground];
+        edge.titleTextAttributes = small;
+        edge.largeTitleTextAttributes = big;
+        bar.standardAppearance = std;
+        bar.scrollEdgeAppearance = edge;
+        bar.compactAppearance = std;
+    }
+}
+
+static UIColor *ZXAccentText(void) { return [UIColor colorWithRed:0.02 green:0.38 blue:0.28 alpha:1]; } // 6.8:1 on white
+
+
+
+@interface ZXSettingsViewController : UITableViewController <UIImagePickerControllerDelegate, UINavigationControllerDelegate>
+@property (nonatomic, strong) NSArray<NSDictionary *> *sections;
+@property (nonatomic, strong) NSMutableSet<NSIndexPath *> *shownRows;
+@property (nonatomic, assign) BOOL showHeaders;   // search results show one chip per category
+@property (nonatomic, assign) BOOL showFooter;    // credits, on the tools page
+- (instancetype)initWithSections:(NSArray<NSDictionary *> *)sections title:(NSString *)title;
+@end
+
+@implementation ZXSettingsViewController
+
+- (instancetype)initWithSections:(NSArray<NSDictionary *> *)sections title:(NSString *)title
+{
+    self = [super initWithStyle:UITableViewStyleGrouped];
+    if (self) {
+        self.title = title;
+        self.sections = sections ?: @[];
+    }
+    return self;
+}
+
+- (void)buildBackground
+{
+    self.tableView.backgroundView = ZXMakeBackdrop();
 }
 
 - (void)pickBackground
@@ -433,51 +494,23 @@ static NSString *ZXBackgroundPath(void)
     self.tableView.backgroundColor = UIColor.clearColor;
     self.tableView.separatorStyle = UITableViewCellSeparatorStyleNone;
     self.tableView.showsVerticalScrollIndicator = NO;
-    self.navigationItem.rightBarButtonItem =
-        [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemDone target:self action:@selector(close)];
-    self.navigationItem.leftBarButtonItem =
-        [[UIBarButtonItem alloc] initWithTitle:@"Thu gọn" style:UIBarButtonItemStylePlain target:self action:@selector(collapse)];
+    self.tableView.keyboardDismissMode = UIScrollViewKeyboardDismissModeOnDrag;
 }
 - (void)viewWillAppear:(BOOL)animated
 {
     [super viewWillAppear:animated];
-    UINavigationBar *bar = self.navigationController.navigationBar;
-    bar.tintColor = UIColor.whiteColor;
-    if (@available(iOS 13.0, *)) {
-        NSDictionary *big = @{ NSForegroundColorAttributeName: UIColor.whiteColor };
-        NSDictionary *small = @{ NSForegroundColorAttributeName: UIColor.whiteColor,
-                                 NSFontAttributeName: [UIFont systemFontOfSize:17 weight:UIFontWeightSemibold] };
-        // scrolled: blurred bar so content never runs under the title (liquid-glass.md rule: blur lives on the bar layer)
-        UINavigationBarAppearance *std = [UINavigationBarAppearance new];
-        if (ZXReduceTransparency()) {
-            [std configureWithOpaqueBackground];
-            std.backgroundColor = [UIColor colorWithRed:0.08 green:0.16 blue:0.34 alpha:1];
-        } else {
-            [std configureWithTransparentBackground];
-            std.backgroundEffect = [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemChromeMaterialDark];
-        }
-        std.titleTextAttributes = small;
-        std.largeTitleTextAttributes = big;
-        // at rest: transparent over the landscape, white large title
-        UINavigationBarAppearance *edge = [UINavigationBarAppearance new];
-        [edge configureWithTransparentBackground];
-        edge.titleTextAttributes = small;
-        edge.largeTitleTextAttributes = big;
-        bar.standardAppearance = std;
-        bar.scrollEdgeAppearance = edge;
-        bar.compactAppearance = std;
+    ZXStyleNavBar(self.navigationController.navigationBar);
+    if (self.title.length) {
+        self.navigationController.navigationBar.prefersLargeTitles = YES;
+        self.navigationItem.largeTitleDisplayMode = UINavigationItemLargeTitleDisplayModeAlways;
     }
 }
-- (void)collapse
-{
-    [self dismissViewControllerAnimated:YES completion:^{ [ZXBubble show]; }];
-}
-- (void)close { [ZXBubble hide]; [self dismissViewControllerAnimated:YES completion:nil]; }
 
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tv { return self.sections.count; }
 - (NSInteger)tableView:(UITableView *)tv numberOfRowsInSection:(NSInteger)s { return [self.sections[s][@"items"] count]; }
 - (UIView *)tableView:(UITableView *)tv viewForHeaderInSection:(NSInteger)s
 {
+    if (!self.showHeaders) return nil;
     UIView *v = [[UIView alloc] initWithFrame:CGRectMake(0, 0, tv.bounds.size.width, 44)];
     UILabel *l = [UILabel new];
     l.text = [self.sections[s][@"title"] uppercaseString];
@@ -517,6 +550,7 @@ static NSString *ZXBackgroundPath(void)
 }
 - (CGFloat)tableView:(UITableView *)tv heightForHeaderInSection:(NSInteger)s
 {
+    if (!self.showHeaders) return 8;
     UILabel *l = [UILabel new];
     l.text = [self.sections[s][@"title"] uppercaseString];
     l.font = [UIFontMetrics.defaultMetrics scaledFontForFont:[UIFont systemFontOfSize:12 weight:UIFontWeightHeavy]];
@@ -526,11 +560,11 @@ static NSString *ZXBackgroundPath(void)
 }
 - (UIView *)tableView:(UITableView *)tv viewForFooterInSection:(NSInteger)s
 {
-    if (s != (NSInteger)self.sections.count - 1) return [UIView new];
+    if (!self.showFooter || s != (NSInteger)self.sections.count - 1) return nil;
     UILabel *l = [[UILabel alloc] initWithFrame:CGRectMake(20, 8, tv.bounds.size.width - 40, 60)];
     l.numberOfLines = 0;
     l.textAlignment = NSTextAlignmentCenter;
-    l.text = @"ZépLàoModMilanVu\nDựa trên ZaloXposed của ElectroHeavenVN (AGPL-3.0)";
+    l.text = @"Zép Lào Mod của MilanVu\nDựa trên ZaloXposed của ElectroHeavenVN (AGPL-3.0)";
     l.font = [UIFont systemFontOfSize:12 weight:UIFontWeightMedium];
     l.textColor = [UIColor colorWithWhite:1 alpha:0.85];
     UIView *v = [[UIView alloc] initWithFrame:CGRectMake(0, 0, tv.bounds.size.width, 80)];
@@ -539,7 +573,8 @@ static NSString *ZXBackgroundPath(void)
 }
 - (CGFloat)tableView:(UITableView *)tv heightForFooterInSection:(NSInteger)s
 {
-    return s == (NSInteger)self.sections.count - 1 ? 84 : 6;
+    if (self.showFooter && s == (NSInteger)self.sections.count - 1) return 84;
+    return 6;
 }
 - (void)tableView:(UITableView *)tv willDisplayCell:(UITableViewCell *)cell forRowAtIndexPath:(NSIndexPath *)ip
 {
@@ -714,6 +749,327 @@ static NSString *ZXBackgroundPath(void)
 
 @end
 
+// ---------------------------------------------------------------- home: category tiles + search
+
+@interface ZXTileCell : UICollectionViewCell
+- (void)configureWithCategory:(NSDictionary *)cat;
+@end
+
+@implementation ZXTileCell {
+    UIView *_iconBG;
+    UIImageView *_icon;
+    UILabel *_title, *_sub, *_badge;
+}
+- (instancetype)initWithFrame:(CGRect)frame
+{
+    self = [super initWithFrame:frame];
+    if (!self) return nil;
+    self.contentView.backgroundColor = [UIColor colorWithWhite:1 alpha:ZXReduceTransparency() ? 1.0 : 0.92];
+    self.contentView.layer.cornerRadius = 22;
+    if (@available(iOS 13.0, *)) self.contentView.layer.cornerCurve = kCACornerCurveContinuous;
+    self.contentView.layer.masksToBounds = YES;
+
+    _iconBG = [UIView new];
+    _iconBG.backgroundColor = [UIColor colorWithRed:0.05 green:0.55 blue:0.40 alpha:0.14];
+    _iconBG.layer.cornerRadius = 22;
+    _icon = [UIImageView new];
+    _icon.tintColor = ZXAccentText();
+    _icon.contentMode = UIViewContentModeScaleAspectFit;
+
+    _badge = [UILabel new];
+    _badge.font = [UIFontMetrics.defaultMetrics scaledFontForFont:[UIFont systemFontOfSize:13 weight:UIFontWeightSemibold]];
+    _badge.adjustsFontForContentSizeCategory = YES;
+    _badge.textColor = ZXAccentText();
+    _badge.textAlignment = NSTextAlignmentCenter;
+    _badge.backgroundColor = [UIColor colorWithRed:0.05 green:0.55 blue:0.40 alpha:0.14];
+    _badge.layer.cornerRadius = 12;
+    _badge.layer.masksToBounds = YES;
+
+    _title = [UILabel new];
+    _title.font = [UIFontMetrics.defaultMetrics scaledFontForFont:[UIFont systemFontOfSize:17 weight:UIFontWeightSemibold]];
+    _title.adjustsFontForContentSizeCategory = YES;
+    _title.textColor = [UIColor colorWithWhite:0.08 alpha:1];
+    _title.numberOfLines = 2;
+    _sub = [UILabel new];
+    _sub.font = [UIFontMetrics.defaultMetrics scaledFontForFont:[UIFont systemFontOfSize:13]];
+    _sub.adjustsFontForContentSizeCategory = YES;
+    _sub.textColor = [UIColor colorWithWhite:0.33 alpha:1];
+    _sub.numberOfLines = 2;
+
+    for (UIView *v in @[_iconBG, _icon, _badge, _title, _sub]) {
+        v.translatesAutoresizingMaskIntoConstraints = NO;
+    }
+    UIView *c = self.contentView;
+    [c addSubview:_iconBG]; [c addSubview:_icon]; [c addSubview:_badge]; [c addSubview:_title]; [c addSubview:_sub];
+    [NSLayoutConstraint activateConstraints:@[
+        [_iconBG.topAnchor constraintEqualToAnchor:c.topAnchor constant:16],
+        [_iconBG.leadingAnchor constraintEqualToAnchor:c.leadingAnchor constant:16],
+        [_iconBG.widthAnchor constraintEqualToConstant:44],
+        [_iconBG.heightAnchor constraintEqualToConstant:44],
+        [_icon.centerXAnchor constraintEqualToAnchor:_iconBG.centerXAnchor],
+        [_icon.centerYAnchor constraintEqualToAnchor:_iconBG.centerYAnchor],
+        [_icon.widthAnchor constraintEqualToConstant:24],
+        [_icon.heightAnchor constraintEqualToConstant:24],
+        [_badge.trailingAnchor constraintEqualToAnchor:c.trailingAnchor constant:-14],
+        [_badge.centerYAnchor constraintEqualToAnchor:_iconBG.centerYAnchor],
+        [_badge.heightAnchor constraintGreaterThanOrEqualToConstant:24],
+        [_badge.widthAnchor constraintGreaterThanOrEqualToConstant:40],
+        [_title.topAnchor constraintEqualToAnchor:_iconBG.bottomAnchor constant:12],
+        [_title.leadingAnchor constraintEqualToAnchor:c.leadingAnchor constant:16],
+        [_title.trailingAnchor constraintEqualToAnchor:c.trailingAnchor constant:-14],
+        [_sub.topAnchor constraintEqualToAnchor:_title.bottomAnchor constant:3],
+        [_sub.leadingAnchor constraintEqualToAnchor:_title.leadingAnchor],
+        [_sub.trailingAnchor constraintEqualToAnchor:_title.trailingAnchor],
+        [_sub.bottomAnchor constraintLessThanOrEqualToAnchor:c.bottomAnchor constant:-12],
+    ]];
+    self.isAccessibilityElement = YES;
+    self.accessibilityTraits = UIAccessibilityTraitButton;
+    return self;
+}
+- (void)configureWithCategory:(NSDictionary *)cat
+{
+    UIImage *img = nil;
+    if (@available(iOS 13.0, *)) {
+        UIImageSymbolConfiguration *cfg = [UIImageSymbolConfiguration configurationWithPointSize:20 weight:UIImageSymbolWeightSemibold];
+        img = [UIImage systemImageNamed:cat[@"icon"] withConfiguration:cfg] ?: [UIImage systemImageNamed:@"circle.grid.2x2" withConfiguration:cfg];
+    }
+    _icon.image = img;
+    _title.text = cat[@"title"];
+    _sub.text = cat[@"desc"];
+    NSInteger total = 0, on = 0;
+    for (NSDictionary *it in cat[@"items"])
+        if (it[@"key"]) { total++; if ([ZXConfig boolForKey:it[@"key"]]) on++; }
+    _badge.hidden = (total == 0);
+    _badge.text = total ? [NSString stringWithFormat:@"%ld/%ld", (long)on, (long)total] : nil;
+    self.accessibilityLabel = total
+        ? [NSString stringWithFormat:@"%@. %@. %ld trên %ld tính năng đang bật", cat[@"title"], cat[@"desc"], (long)on, (long)total]
+        : [NSString stringWithFormat:@"%@. %@", cat[@"title"], cat[@"desc"]];
+}
+- (void)setHighlighted:(BOOL)highlighted
+{
+    [super setHighlighted:highlighted];
+    if (ZXReduceMotion()) return;
+    [UIView animateWithDuration:0.18 delay:0 usingSpringWithDamping:0.7 initialSpringVelocity:0
+                        options:UIViewAnimationOptionAllowUserInteraction animations:^{
+        self.transform = highlighted ? CGAffineTransformMakeScale(0.96, 0.96) : CGAffineTransformIdentity;
+    } completion:nil];
+}
+@end
+
+static NSString *ZXFold(NSString *t)
+{
+    NSString *f = [t ?: @"" stringByFoldingWithOptions:NSDiacriticInsensitiveSearch | NSCaseInsensitiveSearch locale:nil];
+    f = [f stringByReplacingOccurrencesOfString:@"đ" withString:@"d"];
+    f = [f stringByReplacingOccurrencesOfString:@"Đ" withString:@"d"];
+    return f.lowercaseString;
+}
+
+@interface ZXHomeViewController : UIViewController <UICollectionViewDataSource, UICollectionViewDelegateFlowLayout, UISearchResultsUpdating>
+@property (nonatomic, strong) NSArray<NSDictionary *> *cats;
+@property (nonatomic, strong) UICollectionView *cv;
+@property (nonatomic, strong) UIView *backdrop;
+@property (nonatomic, strong) UISearchController *search;
+@property (nonatomic, strong) ZXSettingsViewController *results;
+@property (nonatomic, strong) UIView *emptyView;
+@property (nonatomic, strong) UILabel *emptyLabel;
+@property (nonatomic, strong) NSMutableSet<NSIndexPath *> *shown;
+@end
+
+@implementation ZXHomeViewController
+
+- (void)viewDidLoad
+{
+    [super viewDidLoad];
+    self.title = @"Zép Lào Mod";
+    self.cats = ZXCategories();
+    self.shown = [NSMutableSet new];
+    self.view.backgroundColor = [UIColor colorWithRed:0.08 green:0.16 blue:0.34 alpha:1];
+    if (@available(iOS 13.0, *)) self.overrideUserInterfaceStyle = UIUserInterfaceStyleLight;
+    [self refreshBackdrop];
+
+    UICollectionViewFlowLayout *layout = [UICollectionViewFlowLayout new];
+    layout.minimumLineSpacing = 12;
+    layout.minimumInteritemSpacing = 12;
+    layout.sectionInset = UIEdgeInsetsMake(8, 16, 28, 16);
+    self.cv = [[UICollectionView alloc] initWithFrame:self.view.bounds collectionViewLayout:layout];
+    self.cv.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    self.cv.backgroundColor = UIColor.clearColor;
+    self.cv.dataSource = self;
+    self.cv.delegate = self;
+    self.cv.alwaysBounceVertical = YES;
+    self.cv.showsVerticalScrollIndicator = NO;
+    self.cv.keyboardDismissMode = UIScrollViewKeyboardDismissModeOnDrag;
+    [self.cv registerClass:[ZXTileCell class] forCellWithReuseIdentifier:@"tile"];
+    [self.view addSubview:self.cv];
+
+    // search results reuse the settings list, grouped by category
+    self.results = [[ZXSettingsViewController alloc] initWithSections:@[] title:nil];
+    self.results.showHeaders = YES;
+    [self addChildViewController:self.results];
+    self.results.view.frame = self.view.bounds;
+    self.results.view.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    self.results.view.hidden = YES;
+    [self.view addSubview:self.results.view];
+    [self.results didMoveToParentViewController:self];
+
+    // empty state
+    self.emptyView = [UIView new];
+    self.emptyView.backgroundColor = [UIColor colorWithWhite:0 alpha:0.5];
+    self.emptyView.layer.cornerRadius = 16;
+    self.emptyView.hidden = YES;
+    self.emptyView.translatesAutoresizingMaskIntoConstraints = NO;
+    self.emptyLabel = [UILabel new];
+    self.emptyLabel.numberOfLines = 0;
+    self.emptyLabel.textAlignment = NSTextAlignmentCenter;
+    self.emptyLabel.textColor = UIColor.whiteColor;
+    self.emptyLabel.font = [UIFontMetrics.defaultMetrics scaledFontForFont:[UIFont systemFontOfSize:15 weight:UIFontWeightMedium]];
+    self.emptyLabel.adjustsFontForContentSizeCategory = YES;
+    self.emptyLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.emptyView addSubview:self.emptyLabel];
+    [self.view addSubview:self.emptyView];
+    [NSLayoutConstraint activateConstraints:@[
+        [self.emptyLabel.topAnchor constraintEqualToAnchor:self.emptyView.topAnchor constant:14],
+        [self.emptyLabel.bottomAnchor constraintEqualToAnchor:self.emptyView.bottomAnchor constant:-14],
+        [self.emptyLabel.leadingAnchor constraintEqualToAnchor:self.emptyView.leadingAnchor constant:18],
+        [self.emptyLabel.trailingAnchor constraintEqualToAnchor:self.emptyView.trailingAnchor constant:-18],
+        [self.emptyView.centerXAnchor constraintEqualToAnchor:self.view.centerXAnchor],
+        [self.emptyView.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:150],
+        [self.emptyView.leadingAnchor constraintGreaterThanOrEqualToAnchor:self.view.leadingAnchor constant:24],
+        [self.emptyView.trailingAnchor constraintLessThanOrEqualToAnchor:self.view.trailingAnchor constant:-24],
+    ]];
+
+    // search field in its primary position (large-title navigation bar)
+    self.search = [[UISearchController alloc] initWithSearchResultsController:nil];
+    self.search.searchResultsUpdater = self;
+    self.search.obscuresBackgroundDuringPresentation = NO;
+    UISearchBar *sb = self.search.searchBar;
+    sb.placeholder = @"Tìm tính năng";
+    sb.tintColor = UIColor.whiteColor;
+    if (@available(iOS 13.0, *)) {
+        sb.overrideUserInterfaceStyle = UIUserInterfaceStyleDark;
+        UISearchTextField *tf = sb.searchTextField;
+        tf.backgroundColor = [UIColor colorWithWhite:0 alpha:0.32];
+        tf.textColor = UIColor.whiteColor;
+        tf.tintColor = UIColor.whiteColor;
+        tf.attributedPlaceholder = [[NSAttributedString alloc] initWithString:@"Tìm tính năng"
+            attributes:@{ NSForegroundColorAttributeName: [UIColor colorWithWhite:1 alpha:0.8] }];
+        tf.leftView.tintColor = [UIColor colorWithWhite:1 alpha:0.8];
+    }
+    self.navigationItem.searchController = self.search;
+    self.navigationItem.hidesSearchBarWhenScrolling = NO;
+    self.definesPresentationContext = YES;
+
+    self.navigationItem.backButtonTitle = @"Menu";
+    self.navigationItem.rightBarButtonItem =
+        [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemDone target:self action:@selector(close)];
+    self.navigationItem.rightBarButtonItem.accessibilityLabel = @"Xong, đóng menu";
+    self.navigationItem.leftBarButtonItem =
+        [[UIBarButtonItem alloc] initWithTitle:@"Thu gọn" style:UIBarButtonItemStylePlain target:self action:@selector(collapse)];
+    self.navigationItem.leftBarButtonItem.accessibilityHint = @"Thu menu thành bong bóng";
+}
+
+- (void)refreshBackdrop
+{
+    [self.backdrop removeFromSuperview];
+    self.backdrop = ZXMakeBackdrop();
+    self.backdrop.frame = self.view.bounds;
+    self.backdrop.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    [self.view insertSubview:self.backdrop atIndex:0];
+}
+
+- (void)viewWillAppear:(BOOL)animated
+{
+    [super viewWillAppear:animated];
+    UINavigationBar *bar = self.navigationController.navigationBar;
+    ZXStyleNavBar(bar);
+    bar.prefersLargeTitles = YES;
+    self.navigationItem.largeTitleDisplayMode = UINavigationItemLargeTitleDisplayModeAlways;
+    [self refreshBackdrop];
+    [self.cv reloadData];   // refresh the "n/m" counters after returning from a category
+}
+
+- (void)viewWillTransitionToSize:(CGSize)size withTransitionCoordinator:(id<UIViewControllerTransitionCoordinator>)c
+{
+    [super viewWillTransitionToSize:size withTransitionCoordinator:c];
+    [self.cv.collectionViewLayout invalidateLayout];
+}
+
+- (void)collapse { [self dismissViewControllerAnimated:YES completion:^{ [ZXBubble show]; }]; }
+- (void)close { [ZXBubble hide]; [self dismissViewControllerAnimated:YES completion:nil]; }
+
+// ---- collection view
+
+- (NSInteger)collectionView:(UICollectionView *)cv numberOfItemsInSection:(NSInteger)section { return self.cats.count; }
+- (UICollectionViewCell *)collectionView:(UICollectionView *)cv cellForItemAtIndexPath:(NSIndexPath *)ip
+{
+    ZXTileCell *cell = [cv dequeueReusableCellWithReuseIdentifier:@"tile" forIndexPath:ip];
+    [cell configureWithCategory:self.cats[ip.item]];
+    return cell;
+}
+- (CGSize)collectionView:(UICollectionView *)cv layout:(UICollectionViewLayout *)l sizeForItemAtIndexPath:(NSIndexPath *)ip
+{
+    CGFloat w = cv.bounds.size.width, inset = 16, gap = 12;
+    BOOL big = UIContentSizeCategoryIsAccessibilityCategory(self.traitCollection.preferredContentSizeCategory);
+    if (big) return CGSizeMake(w - 2 * inset, 190);
+    return CGSizeMake(floor((w - 2 * inset - gap) / 2), 172);
+}
+- (void)collectionView:(UICollectionView *)cv willDisplayCell:(UICollectionViewCell *)cell forItemAtIndexPath:(NSIndexPath *)ip
+{
+    if ([self.shown containsObject:ip]) return;
+    [self.shown addObject:ip];
+    if (ZXReduceMotion()) return;
+    cell.alpha = 0;
+    cell.transform = CGAffineTransformConcat(CGAffineTransformMakeTranslation(0, 24), CGAffineTransformMakeScale(0.95, 0.95));
+    [UIView animateWithDuration:0.5 delay:ip.item * 0.045 usingSpringWithDamping:0.78 initialSpringVelocity:0.4
+                        options:UIViewAnimationOptionAllowUserInteraction animations:^{
+        cell.alpha = 1;
+        cell.transform = CGAffineTransformIdentity;
+    } completion:nil];
+}
+- (void)collectionView:(UICollectionView *)cv didSelectItemAtIndexPath:(NSIndexPath *)ip
+{
+    NSDictionary *cat = self.cats[ip.item];
+    ZXSettingsViewController *vc = [[ZXSettingsViewController alloc] initWithSections:@[cat] title:cat[@"title"]];
+    vc.showFooter = [cat[@"footer"] boolValue];
+    [self.navigationController pushViewController:vc animated:YES];
+}
+
+// ---- search
+
+- (void)updateSearchResultsForSearchController:(UISearchController *)sc
+{
+    NSString *raw = [(sc.searchBar.text ?: @"") stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    if (raw.length == 0) {
+        self.results.view.hidden = YES;
+        self.emptyView.hidden = YES;
+        self.cv.hidden = NO;
+        return;
+    }
+    NSArray<NSString *> *tokens = [[ZXFold(raw) componentsSeparatedByString:@" "] filteredArrayUsingPredicate:
+                                   [NSPredicate predicateWithFormat:@"length > 0"]];
+    NSMutableArray *secs = [NSMutableArray new];
+    for (NSDictionary *cat in self.cats) {
+        NSMutableArray *hits = [NSMutableArray new];
+        for (NSDictionary *it in cat[@"items"]) {
+            NSString *hay = ZXFold([NSString stringWithFormat:@"%@ %@ %@ %@", it[@"title"] ?: @"", it[@"sub"] ?: @"",
+                                    it[@"kw"] ?: @"", cat[@"title"]]);
+            BOOL all = YES;
+            for (NSString *t in tokens) if ([hay rangeOfString:t].location == NSNotFound) { all = NO; break; }
+            if (all) [hits addObject:it];
+        }
+        if (hits.count) [secs addObject:@{ @"title": cat[@"title"], @"items": hits }];
+    }
+    self.results.sections = secs;
+    [self.results.shownRows removeAllObjects];
+    [self.results.tableView reloadData];
+    self.results.view.hidden = (secs.count == 0);
+    self.cv.hidden = YES;
+    self.emptyView.hidden = (secs.count > 0);
+    self.emptyLabel.text = [NSString stringWithFormat:@"Không có tính năng nào khớp với “%@”.\nThử từ khác, ví dụ: đã xem, quảng cáo, ảnh, nền.", raw];
+}
+
+@end
+
 // ---------------------------------------------------------------- button in Zalo's Settings screen
 
 static const NSInteger kZXFooterTag = 0x5A59;
@@ -817,9 +1173,9 @@ static void ZXHookSettingsButton(void)
     if (!top) return;
     if ([top isKindOfClass:[UINavigationController class]]) {
         UIViewController *first = ((UINavigationController *)top).viewControllers.firstObject;
-        if ([first isKindOfClass:[ZXSettingsViewController class]]) return;
+        if ([first isKindOfClass:[ZXHomeViewController class]]) return;
     }
-    UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:[ZXSettingsViewController new]];
+    UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:[ZXHomeViewController new]];
     nav.modalPresentationStyle = UIModalPresentationFullScreen;
     [top presentViewController:nav animated:YES completion:nil];
 }
