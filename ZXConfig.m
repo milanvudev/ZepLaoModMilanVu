@@ -33,6 +33,7 @@ static NSUserDefaults *ZXDefaults(void)
         ZXK_TTL_OVERRIDE: @NO,
         ZXK_UNLIMITED_MEDIA: @NO,
         ZXK_DEFAULT_ORIGINAL: @YES,
+        ZXK_VIDEO_ORIGINAL: @YES,
         kTTL: @0,
         kUID: @"",
     }];
