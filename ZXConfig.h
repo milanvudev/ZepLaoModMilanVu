@@ -15,6 +15,7 @@
 #define ZXK_DISABLE_FIREBASE       @"logging_disable_firebase"
 #define ZXK_UNLIMITED_MEDIA        @"enable_unlimited_media"
 #define ZXK_DEFAULT_ORIGINAL       @"default_original_quality"
+#define ZXK_VIDEO_ORIGINAL         @"video_original"
 #define ZXK_TTL_OVERRIDE           @"enable_msg_ttl_override"
 
 @interface ZXConfig : NSObject
