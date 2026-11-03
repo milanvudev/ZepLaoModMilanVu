@@ -274,6 +274,9 @@ static NSString *ZXBackgroundPath(void)
     return [[ZXConfig dataDir] stringByAppendingPathComponent:@"menu_bg.jpg"];
 }
 
+static UIVisualEffect *ZXGlassEffect(void);
+static BOOL ZXGlassOn(void);
+
 @interface ZXCardCell : UITableViewCell
 - (void)applyCardStyle;
 @end
@@ -300,9 +303,26 @@ static NSString *ZXBackgroundPath(void)
     return self;
 }
 /// UITableView resets cell.backgroundColor right before display, so this is called again from willDisplayCell.
+/// Liquid Glass on: UIGlassEffect behind the row, white text. Off (or Reduce Transparency): near-opaque white card, dark text.
 - (void)applyCardStyle
 {
-    self.backgroundColor = [UIColor colorWithWhite:1 alpha:ZXReduceTransparency() ? 1.0 : 0.92];
+    if (ZXGlassOn()) {
+        self.backgroundColor = UIColor.clearColor;
+        if (![self.backgroundView isKindOfClass:[UIVisualEffectView class]]) {
+            UIVisualEffectView *ev = [[UIVisualEffectView alloc] initWithEffect:ZXGlassEffect()];
+            ev.layer.cornerRadius = 18;
+            if (@available(iOS 13.0, *)) ev.layer.cornerCurve = kCACornerCurveContinuous;
+            ev.clipsToBounds = YES;
+            self.backgroundView = ev;
+        }
+        self.textLabel.textColor = UIColor.whiteColor;
+        self.detailTextLabel.textColor = [UIColor colorWithWhite:1 alpha:0.82];
+    } else {
+        self.backgroundView = nil;
+        self.backgroundColor = [UIColor colorWithWhite:1 alpha:ZXReduceTransparency() ? 1.0 : 0.92];
+        self.textLabel.textColor = [UIColor colorWithWhite:0.08 alpha:1];
+        self.detailTextLabel.textColor = [UIColor colorWithWhite:0.33 alpha:1];
+    }
 }
 - (void)setFrame:(CGRect)frame
 {
@@ -353,7 +373,7 @@ static NSArray<NSDictionary *> *ZXCategories(void)
             @{ @"action": @"ttl", @"title": @"Giá trị TTL (ms)" },
         ]},
         @{ @"title": @"Giao diện", @"icon": @"paintbrush", @"desc": @"Nền, kính, hiệu ứng", @"items": @[
-            @{ @"key": ZXK_LIQUID_GLASS, @"title": @"Liquid Glass", @"sub": @"Ô menu, nút Thu gọn/Xong và nhãn nhóm dùng kính trong suốt. Các hàng bật tắt giữ nền đặc để dễ đọc.", @"kw": @"kính glass" },
+            @{ @"key": ZXK_LIQUID_GLASS, @"title": @"Liquid Glass", @"sub": @"Ô menu, nút Thu gọn/Xong và các hàng tính năng dùng kính trong suốt", @"kw": @"kính glass" },
             @{ @"action": @"bgpick", @"title": @"Đổi ảnh nền", @"sub": @"Chọn ảnh từ thư viện, kéo và thu phóng để cắt", @"kw": @"background wallpaper" },
             @{ @"action": @"bgreset", @"title": @"Dùng lại nền phong cảnh" },
         ]},
