@@ -353,7 +353,7 @@ static NSArray<NSDictionary *> *ZXCategories(void)
             @{ @"action": @"ttl", @"title": @"Giá trị TTL (ms)" },
         ]},
         @{ @"title": @"Giao diện", @"icon": @"paintbrush", @"desc": @"Nền, kính, hiệu ứng", @"items": @[
-            @{ @"key": ZXK_LIQUID_GLASS, @"title": @"Liquid Glass", @"sub": @"Nhãn nhóm và thanh trên dùng kính. Thẻ nội dung giữ nền đặc để dễ đọc.", @"kw": @"kính glass" },
+            @{ @"key": ZXK_LIQUID_GLASS, @"title": @"Liquid Glass", @"sub": @"Ô menu, nút Thu gọn/Xong và nhãn nhóm dùng kính trong suốt. Các hàng bật tắt giữ nền đặc để dễ đọc.", @"kw": @"kính glass" },
             @{ @"action": @"bgpick", @"title": @"Đổi ảnh nền", @"sub": @"Chọn ảnh từ thư viện, kéo và thu phóng để cắt", @"kw": @"background wallpaper" },
             @{ @"action": @"bgreset", @"title": @"Dùng lại nền phong cảnh" },
         ]},
@@ -751,6 +751,43 @@ static UIColor *ZXAccentText(void) { return [UIColor colorWithRed:0.02 green:0.3
 
 // ---------------------------------------------------------------- home: category tiles + search
 
+/// UIGlassEffect on iOS 26+ (looked up at runtime so older SDKs still build); thin dark blur on older systems.
+static UIVisualEffect *ZXGlassEffect(void)
+{
+    Class gc = NSClassFromString(@"UIGlassEffect");
+    if (gc) {
+        id e = [[gc alloc] init];
+        @try { [e setValue:@YES forKey:@"interactive"]; } @catch (__unused id x) {}
+        @try { [e setValue:[UIColor colorWithWhite:0 alpha:0.32] forKey:@"tintColor"]; } @catch (__unused id x) {} // keeps white text ≥ 4.5:1
+        return e;
+    }
+    return [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemThinMaterialDark];
+}
+
+static BOOL ZXGlassOn(void) { return [ZXConfig boolForKey:ZXK_LIQUID_GLASS] && !ZXReduceTransparency(); }
+
+/// Capsule bar button with a glass background (used for "Thu gọn" / "Xong" when Liquid Glass is on).
+static UIBarButtonItem *ZXGlassBarButton(NSString *title, BOOL bold, id target, SEL action)
+{
+    UIButton *b = [UIButton buttonWithType:UIButtonTypeCustom];
+    [b setTitle:title forState:UIControlStateNormal];
+    [b setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
+    b.titleLabel.font = [UIFontMetrics.defaultMetrics scaledFontForFont:[UIFont systemFontOfSize:16 weight:bold ? UIFontWeightSemibold : UIFontWeightRegular]];
+    b.titleLabel.adjustsFontForContentSizeCategory = YES;
+    CGSize ts = [title sizeWithAttributes:@{ NSFontAttributeName: b.titleLabel.font }];
+    b.frame = CGRectMake(0, 0, MAX(64, ceil(ts.width) + 32), 40);
+    UIVisualEffectView *ev = [[UIVisualEffectView alloc] initWithEffect:ZXGlassEffect()];
+    ev.frame = b.bounds;
+    ev.userInteractionEnabled = NO;
+    ev.layer.cornerRadius = 20;
+    ev.clipsToBounds = YES;
+    ev.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    [b insertSubview:ev atIndex:0];
+    [b addTarget:target action:action forControlEvents:UIControlEventTouchUpInside];
+    b.accessibilityLabel = title;
+    return [[UIBarButtonItem alloc] initWithCustomView:b];
+}
+
 @interface ZXTileCell : UICollectionViewCell
 - (void)configureWithCategory:(NSDictionary *)cat;
 @end
@@ -759,6 +796,7 @@ static UIColor *ZXAccentText(void) { return [UIColor colorWithRed:0.02 green:0.3
     UIView *_iconBG;
     UIImageView *_icon;
     UILabel *_title, *_sub, *_badge;
+    UIVisualEffectView *_glass;
 }
 - (instancetype)initWithFrame:(CGRect)frame
 {
@@ -826,8 +864,38 @@ static UIColor *ZXAccentText(void) { return [UIColor colorWithRed:0.02 green:0.3
     self.accessibilityTraits = UIAccessibilityTraitButton;
     return self;
 }
+- (void)applyStyleGlass:(BOOL)glass
+{
+    if (glass) {
+        if (!_glass) {
+            _glass = [[UIVisualEffectView alloc] initWithEffect:ZXGlassEffect()];
+            _glass.frame = self.contentView.bounds;
+            _glass.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+            _glass.userInteractionEnabled = NO;
+            [self.contentView insertSubview:_glass atIndex:0];
+        }
+        _glass.hidden = NO;
+        self.contentView.backgroundColor = UIColor.clearColor;
+        _title.textColor = UIColor.whiteColor;
+        _sub.textColor = [UIColor colorWithWhite:1 alpha:0.86];
+        _icon.tintColor = UIColor.whiteColor;
+        _iconBG.backgroundColor = [UIColor colorWithWhite:1 alpha:0.22];
+        _badge.textColor = UIColor.whiteColor;
+        _badge.backgroundColor = [UIColor colorWithWhite:1 alpha:0.22];
+    } else {
+        _glass.hidden = YES;
+        self.contentView.backgroundColor = [UIColor colorWithWhite:1 alpha:ZXReduceTransparency() ? 1.0 : 0.92];
+        _title.textColor = [UIColor colorWithWhite:0.08 alpha:1];
+        _sub.textColor = [UIColor colorWithWhite:0.33 alpha:1];
+        _icon.tintColor = ZXAccentText();
+        _iconBG.backgroundColor = [UIColor colorWithRed:0.05 green:0.55 blue:0.40 alpha:0.14];
+        _badge.textColor = ZXAccentText();
+        _badge.backgroundColor = [UIColor colorWithRed:0.05 green:0.55 blue:0.40 alpha:0.14];
+    }
+}
 - (void)configureWithCategory:(NSDictionary *)cat
 {
+    [self applyStyleGlass:ZXGlassOn()];
     UIImage *img = nil;
     if (@available(iOS 13.0, *)) {
         UIImageSymbolConfiguration *cfg = [UIImageSymbolConfiguration configurationWithPointSize:20 weight:UIImageSymbolWeightSemibold];
@@ -881,6 +949,11 @@ static NSString *ZXFold(NSString *t)
 {
     [super viewDidLoad];
     self.title = @"Zép Lào Mod";
+    // Liquid Glass starts ON once; after that the user's choice in "Giao diện" is respected
+    if (![ZXConfig boolForKey:@"lg_default_applied"]) {
+        [ZXConfig setBool:YES forKey:ZXK_LIQUID_GLASS];
+        [ZXConfig setBool:YES forKey:@"lg_default_applied"];
+    }
     self.cats = ZXCategories();
     self.shown = [NSMutableSet new];
     self.view.backgroundColor = [UIColor colorWithRed:0.08 green:0.16 blue:0.34 alpha:1];
@@ -960,11 +1033,21 @@ static NSString *ZXFold(NSString *t)
     self.definesPresentationContext = YES;
 
     self.navigationItem.backButtonTitle = @"Menu";
-    self.navigationItem.rightBarButtonItem =
-        [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemDone target:self action:@selector(close)];
+    [self refreshBarButtons];
+}
+
+- (void)refreshBarButtons
+{
+    if (ZXGlassOn()) {
+        self.navigationItem.rightBarButtonItem = ZXGlassBarButton(@"Xong", YES, self, @selector(close));
+        self.navigationItem.leftBarButtonItem = ZXGlassBarButton(@"Thu gọn", NO, self, @selector(collapse));
+    } else {
+        self.navigationItem.rightBarButtonItem =
+            [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemDone target:self action:@selector(close)];
+        self.navigationItem.leftBarButtonItem =
+            [[UIBarButtonItem alloc] initWithTitle:@"Thu gọn" style:UIBarButtonItemStylePlain target:self action:@selector(collapse)];
+    }
     self.navigationItem.rightBarButtonItem.accessibilityLabel = @"Xong, đóng menu";
-    self.navigationItem.leftBarButtonItem =
-        [[UIBarButtonItem alloc] initWithTitle:@"Thu gọn" style:UIBarButtonItemStylePlain target:self action:@selector(collapse)];
     self.navigationItem.leftBarButtonItem.accessibilityHint = @"Thu menu thành bong bóng";
 }
 
@@ -985,6 +1068,7 @@ static NSString *ZXFold(NSString *t)
     bar.prefersLargeTitles = YES;
     self.navigationItem.largeTitleDisplayMode = UINavigationItemLargeTitleDisplayModeAlways;
     [self refreshBackdrop];
+    [self refreshBarButtons];
     [self.cv reloadData];   // refresh the "n/m" counters after returning from a category
 }
 
