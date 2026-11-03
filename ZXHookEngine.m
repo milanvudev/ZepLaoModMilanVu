@@ -50,6 +50,34 @@ static BOOL ZXArgMatches(NSInteger matchArg, NSString *matchText, const ZXWord *
     return [d rangeOfString:matchText options:NSCaseInsensitiveSearch].location != NSNotFound;
 }
 
+/// Raises the export configuration of an HD video to the source's own resolution / bitrate ("original").
+/// cfg = ZAVideoExportConfiguration, info = ZVEAssetInfo (both read/written via KVC, failures ignored).
+static void ZXApplyVideoOriginal(id cfg, id info)
+{
+    if (!cfg || !info) return;
+    @try {
+        double curDim = [[cfg valueForKey:@"dimension"] doubleValue];
+        double curBR = [[cfg valueForKey:@"videoBitrate"] doubleValue];
+        if (curDim < 700) return; // "Standard" quality keeps its own limits
+        double srcBR = 0;
+        id v = [info valueForKey:@"videoBitrate"];
+        if ([v respondsToSelector:@selector(doubleValue)]) srcBR = [v doubleValue];
+        CGSize rs = CGSizeZero;
+        id r = [info valueForKey:@"resolution"];
+        if ([r isKindOfClass:[NSValue class]]) rs = [r CGSizeValue];
+        double side = MAX(rs.width, rs.height);
+        double newDim = curDim, newBR = curBR;
+        if (side > curDim) newDim = side;
+        if (srcBR > curBR) newBR = MIN(srcBR, 40000000.0);
+        if (newDim != curDim) [cfg setValue:@(newDim) forKey:@"dimension"];
+        if (newBR != curBR) [cfg setValue:@(newBR) forKey:@"videoBitrate"];
+        ZXLog(@"video original: dimension %.0f -> %.0f, bitrate %.0f -> %.0f (source %.0fx%.0f @ %.0f)",
+              curDim, newDim, curBR, newBR, rs.width, rs.height, srcBR);
+    } @catch (NSException *e) {
+        ZXLog(@"video original failed: %@", e.reason);
+    }
+}
+
 @implementation ZXHookEngine
 
 + (NSString *)rulesPath
@@ -57,7 +85,7 @@ static BOOL ZXArgMatches(NSInteger matchArg, NSString *matchText, const ZXWord *
     return [[ZXConfig dataDir] stringByAppendingPathComponent:@"rules.json"];
 }
 
-#define ZX_RULES_VERSION_MARK @"// zx-rules-version: 8"
+#define ZX_RULES_VERSION_MARK @"// zx-rules-version: 9"
 
 + (NSString *)defaultRulesJSON
 {
@@ -239,15 +267,6 @@ static BOOL ZXArgMatches(NSInteger matchArg, NSString *matchText, const ZXWord *
     @"    \"configKey\": \"video_original\"\n"
     @"  },\n"
     @"  {\n"
-    @"    \"id\": \"video_hd_max_output\",\n"
-    @"    \"enabled\": true,\n"
-    @"    \"class\": \"ZSDSettingVideoInfo\",\n"
-    @"    \"selector\": \"chatHDPickVideoMaxOutputSize\",\n"
-    @"    \"action\": \"return\",\n"
-    @"    \"returnValue\": 8192,\n"
-    @"    \"configKey\": \"video_original\"\n"
-    @"  },\n"
-    @"  {\n"
     @"    \"id\": \"video_max_upload\",\n"
     @"    \"enabled\": true,\n"
     @"    \"class\": \"UXSessionContext\",\n"
@@ -265,11 +284,13 @@ static BOOL ZXArgMatches(NSInteger matchArg, NSString *matchText, const ZXWord *
     @"    \"action\": \"log\"\n"
     @"  },\n"
     @"  {\n"
-    @"    \"id\": \"trace_video_bitrate\",\n"
+    @"    \"id\": \"video_original_config\",\n"
     @"    \"enabled\": true,\n"
     @"    \"class\": \"ZAVideoExportManager\",\n"
     @"    \"selector\": \"_reconfigBitrateForConfiguration:assetInfo:videoID:source:\",\n"
-    @"    \"action\": \"log\"\n"
+    @"    \"action\": \"videocfg\",\n"
+    @"    \"argIndex\": 1,\n"
+    @"    \"configKey\": \"video_original\"\n"
     @"  },\n"
     @"  {\n"
     @"    \"id\": \"trace_pre_send_file\",\n"
@@ -294,7 +315,7 @@ static BOOL ZXArgMatches(NSInteger matchArg, NSString *matchText, const ZXWord *
     @"    \"action\": \"log\"\n"
     @"  }\n"
     @"]\n"
-    @"// zx-rules-version: 8\n";
+    @"// zx-rules-version: 9\n";
 }
 
 + (void)ensureRulesFile
@@ -475,6 +496,8 @@ static BOOL ZXWordArgType(char c)
         if (t) free(t);
         if (!isObj) { ZXLog(@"rule %@: argIndex is not an object", rule[@"id"]); return YES; }
     }
+    BOOL isVideoCfg = [action isEqualToString:@"videocfg"];
+    if (isVideoCfg && (!isVoid || argc < 4)) { ZXLog(@"rule %@: videocfg needs a void method with (config, assetInfo, ...)", rule[@"id"]); return YES; }
     BOOL isTTL = [action isEqualToString:@"ttl"];
     if (isTTL && isVoid) { ZXLog(@"rule %@: ttl needs a non-void method", rule[@"id"]); return YES; }
 
@@ -507,6 +530,11 @@ static BOOL ZXWordArgType(char c)
                 ZXTraceCall(traceTag, objKinds, args);
             } else if ((!configKey || [ZXConfig boolForKey:configKey]) && ZXArgMatches(matchArg, matchText, args)) {
                 if (markFlag) ZXMarkArgs(objKinds, args);
+                if (isVideoCfg) {
+                    ((void (*)(id, SEL, ZXWord, ZXWord, ZXWord, ZXWord, ZXWord, ZXWord))orig)(self_, sel, args[0], args[1], args[2], args[3], args[4], args[5]);
+                    ZXApplyVideoOriginal((__bridge id)(void *)args[0], (__bridge id)(void *)args[1]);
+                    return;
+                }
                 if (isSetArg) {
                     args[argIndex - 1] = retVal;
                     ((void (*)(id, SEL, ZXWord, ZXWord, ZXWord, ZXWord, ZXWord, ZXWord))orig)(self_, sel, args[0], args[1], args[2], args[3], args[4], args[5]);
