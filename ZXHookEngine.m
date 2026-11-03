@@ -86,7 +86,7 @@ static void ZXApplyVideoOriginal(id cfg, id info)
     return [[ZXConfig dataDir] stringByAppendingPathComponent:@"rules.json"];
 }
 
-#define ZX_RULES_VERSION_MARK @"// zx-rules-version: 9"
+#define ZX_RULES_VERSION_MARK @"// zx-rules-version: 10"
 
 + (NSString *)defaultRulesJSON
 {
@@ -277,6 +277,14 @@ static void ZXApplyVideoOriginal(id cfg, id info)
     @"    \"configKey\": \"enable_unlimited_media\"\n"
     @"  },\n"
     @"  {\n"
+    @"    \"id\": \"trace_video_picker_quality\",\n"
+    @"    \"enabled\": true,\n"
+    @"    \"class\": \"UXMediaPickerUnities\",\n"
+    @"    \"selector\": \"getSendingInfoVideoItem:pickerQuality:ownerId:toUserId:isSendToGroup:\",\n"
+    @"    \"classMethod\": true,\n"
+    @"    \"action\": \"log\"\n"
+    @"  },\n"
+    @"  {\n"
     @"    \"id\": \"trace_video_id\",\n"
     @"    \"enabled\": true,\n"
     @"    \"class\": \"ZAChatVideoExporter\",\n"
@@ -316,7 +324,7 @@ static void ZXApplyVideoOriginal(id cfg, id info)
     @"    \"action\": \"log\"\n"
     @"  }\n"
     @"]\n"
-    @"// zx-rules-version: 9\n";
+    @"// zx-rules-version: 10\n";
 }
 
 + (void)ensureRulesFile
