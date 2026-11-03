@@ -57,7 +57,7 @@ static BOOL ZXArgMatches(NSInteger matchArg, NSString *matchText, const ZXWord *
     return [[ZXConfig dataDir] stringByAppendingPathComponent:@"rules.json"];
 }
 
-#define ZX_RULES_VERSION_MARK @"// zx-rules-version: 6"
+#define ZX_RULES_VERSION_MARK @"// zx-rules-version: 8"
 
 + (NSString *)defaultRulesJSON
 {
@@ -189,28 +189,6 @@ static BOOL ZXArgMatches(NSInteger matchArg, NSString *matchText, const ZXWord *
     @"    \"configKey\": \"default_original_quality\"\n"
     @"  },\n"
     @"  {\n"
-    @"    \"id\": \"force_hd_flag\",\n"
-    @"    \"enabled\": true,\n"
-    @"    \"class\": \"ActionCommonObject\",\n"
-    @"    \"selector\": \"parsePhotoChatWithInfo:tuid:isSendToGroup:isSendHD:\",\n"
-    @"    \"classMethod\": true,\n"
-    @"    \"action\": \"setarg\",\n"
-    @"    \"argIndex\": 4,\n"
-    @"    \"returnValue\": 1,\n"
-    @"    \"configKey\": \"default_original_quality\"\n"
-    @"  },\n"
-    @"  {\n"
-    @"    \"id\": \"png_quality_original\",\n"
-    @"    \"enabled\": true,\n"
-    @"    \"class\": \"ChatDataManager\",\n"
-    @"    \"selector\": \"restrictPNGDataWithImage:pickerQuality:maxFileSize:isReduceSize:photoSize:\",\n"
-    @"    \"classMethod\": true,\n"
-    @"    \"action\": \"setarg\",\n"
-    @"    \"argIndex\": 2,\n"
-    @"    \"returnValue\": 2,\n"
-    @"    \"configKey\": \"default_original_quality\"\n"
-    @"  },\n"
-    @"  {\n"
     @"    \"id\": \"can_upload_original\",\n"
     @"    \"enabled\": true,\n"
     @"    \"class\": \"ZCFPickerConfig\",\n"
@@ -251,6 +229,49 @@ static BOOL ZXArgMatches(NSInteger matchArg, NSString *matchText, const ZXWord *
     @"    \"configKey\": \"enable_unlimited_media\"\n"
     @"  },\n"
     @"  {\n"
+    @"    \"id\": \"video_bypass_transcode\",\n"
+    @"    \"enabled\": true,\n"
+    @"    \"class\": \"ZAVideoExportHelper\",\n"
+    @"    \"selector\": \"shouldByPassVideoSize:withDimensionMax:\",\n"
+    @"    \"classMethod\": true,\n"
+    @"    \"action\": \"return_size\",\n"
+    @"    \"returnValue\": 1,\n"
+    @"    \"configKey\": \"video_original\"\n"
+    @"  },\n"
+    @"  {\n"
+    @"    \"id\": \"video_hd_max_output\",\n"
+    @"    \"enabled\": true,\n"
+    @"    \"class\": \"ZSDSettingVideoInfo\",\n"
+    @"    \"selector\": \"chatHDPickVideoMaxOutputSize\",\n"
+    @"    \"action\": \"return\",\n"
+    @"    \"returnValue\": 8192,\n"
+    @"    \"configKey\": \"video_original\"\n"
+    @"  },\n"
+    @"  {\n"
+    @"    \"id\": \"video_max_upload\",\n"
+    @"    \"enabled\": true,\n"
+    @"    \"class\": \"UXSessionContext\",\n"
+    @"    \"selector\": \"maxUploadVideoSize\",\n"
+    @"    \"action\": \"return\",\n"
+    @"    \"returnValue\": 10737418240,\n"
+    @"    \"configKey\": \"enable_unlimited_media\"\n"
+    @"  },\n"
+    @"  {\n"
+    @"    \"id\": \"trace_video_id\",\n"
+    @"    \"enabled\": true,\n"
+    @"    \"class\": \"ZAChatVideoExporter\",\n"
+    @"    \"selector\": \"createVideoIdWithAssetUrl:isHighQuality:\",\n"
+    @"    \"classMethod\": true,\n"
+    @"    \"action\": \"log\"\n"
+    @"  },\n"
+    @"  {\n"
+    @"    \"id\": \"trace_video_bitrate\",\n"
+    @"    \"enabled\": true,\n"
+    @"    \"class\": \"ZAVideoExportManager\",\n"
+    @"    \"selector\": \"_reconfigBitrateForConfiguration:assetInfo:videoID:source:\",\n"
+    @"    \"action\": \"log\"\n"
+    @"  },\n"
+    @"  {\n"
     @"    \"id\": \"trace_pre_send_file\",\n"
     @"    \"enabled\": true,\n"
     @"    \"class\": \"FilePickerObject\",\n"
@@ -273,7 +294,7 @@ static BOOL ZXArgMatches(NSInteger matchArg, NSString *matchText, const ZXWord *
     @"    \"action\": \"log\"\n"
     @"  }\n"
     @"]\n"
-    @"// zx-rules-version: 6\n";
+    @"// zx-rules-version: 8\n";
 }
 
 + (void)ensureRulesFile
@@ -365,6 +386,33 @@ static BOOL ZXWordArgType(char c)
     }
     NSString *key = [NSString stringWithFormat:@"%c%@ %@", isClassMethod ? '+' : '-', className, selName];
     if ([gInstalled containsObject:key]) return YES;
+
+    // CGSize + integer args, integer return (e.g. +ZAVideoExportHelper shouldByPassVideoSize:withDimensionMax:)
+    if ([action isEqualToString:@"return_size"]) {
+        char *a0 = method_copyArgumentType(m, 2);
+        BOOL okSig = method_getNumberOfArguments(m) == 4 && a0 && strncmp(a0, "{CGSize", 7) == 0;
+        if (a0) free(a0);
+        char *a1 = okSig ? method_copyArgumentType(m, 3) : NULL;
+        okSig = okSig && a1 && ZXWordArgType(a1[0]);
+        if (a1) free(a1);
+        char *rt2 = method_copyReturnType(m);
+        okSig = okSig && rt2 && ZXWordArgType(rt2[0]);
+        if (rt2) free(rt2);
+        if (!okSig) { ZXLog(@"rule %@: return_size needs (CGSize, integer) -> integer", rule[@"id"]); return YES; }
+        NSString *scfg = [rule[@"configKey"] isKindOfClass:[NSString class]] ? rule[@"configKey"] : nil;
+        ZXWord sval = (ZXWord)[rule[@"returnValue"] longLongValue];
+        IMP sorig = method_getImplementation(m);
+        const char *stypes = method_getTypeEncoding(m);
+        id sblock = ^ZXWord(id self_, CGSize size, ZXWord a2) {
+            if (!scfg || [ZXConfig boolForKey:scfg]) return sval;
+            return ((ZXWord (*)(id, SEL, CGSize, ZXWord))sorig)(self_, sel, size, a2);
+        };
+        IMP simp = imp_implementationWithBlock(sblock);
+        if (!class_addMethod(target, sel, simp, stypes)) method_setImplementation(m, simp);
+        [gInstalled addObject:key];
+        ZXLog(@"hooked %@ (%@) action=return_size", key, rule[@"id"] ?: key);
+        return YES;
+    }
 
     // validate signature: only integer-class args (<= 6) and void / integer-class return
     unsigned argc = method_getNumberOfArguments(m);
