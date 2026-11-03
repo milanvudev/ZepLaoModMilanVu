@@ -368,6 +368,7 @@ static NSArray<NSDictionary *> *ZXCategories(void)
         ]},
         @{ @"title": @"Ảnh, file & tự hủy", @"icon": @"photo.on.rectangle", @"desc": @"Original, file lớn, TTL", @"items": @[
             @{ @"key": ZXK_DEFAULT_ORIGINAL, @"title": @"Gửi ảnh Original mặc định", @"sub": @"Chọn sẵn chất lượng gốc khi mở bảng chế độ gửi", @"kw": @"hd chất lượng ảnh" },
+            @{ @"key": ZXK_VIDEO_ORIGINAL, @"title": @"Gửi video giữ nguyên gốc (thử nghiệm)", @"sub": @"Bỏ bước nén lại video. Tắt nếu gửi video bị lỗi. Cần thoát app để áp dụng", @"kw": @"video hd chất lượng" },
             @{ @"key": ZXK_UNLIMITED_MEDIA, @"title": @"Nâng giới hạn dung lượng gửi", @"sub": @"Gửi file/ảnh lớn hơn mức mặc định", @"kw": @"file size không giới hạn" },
             @{ @"key": ZXK_TTL_OVERRIDE, @"title": @"Đặt thời gian tự hủy (TTL)", @"sub": @"Áp dụng cho tin bạn gửi", @"kw": @"ttl tự hủy" },
             @{ @"action": @"ttl", @"title": @"Giá trị TTL (ms)" },
