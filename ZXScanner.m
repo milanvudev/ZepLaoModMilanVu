@@ -18,7 +18,11 @@
                                       @"wallpaper", @"chatskin", @"chatbackground", @"chatbg", @"backgroundimage", @"themeitem",
                                       @"filesizelimit", @"maxfilesize", @"filelimit", @"maxsizefile", @"limitsend", @"checkfilesize",
                                       @"maxupload", @"sendfile", @"uploadlimit", @"qualitypicker", @"sendhd", @"originalquality",
-                                      @"customfont", @"fontstyle", @"profilemusic", @"musicprofile"];
+                                      @"customfont", @"fontstyle", @"profilemusic", @"musicprofile",
+                                      @"sendsticker", @"stickersend", @"sendgif", @"sendstickerto", @"stickermessage"];
+    // Scan 3: video quality. A method counts only if its selector has "video" AND one of these words.
+    NSArray<NSString *> *videoWords = @[@"quality", @"compress", @"export", @"preset", @"bitrate", @"resolution", @"hd", @"original",
+                                        @"maxsize", @"upload", @"encode", @"convert", @"transcode", @"send", @"pickerquality"];
     NSArray<NSString *> *noise = @[@"tracking", @"banner", @"constraint", @"analytics", @"reddot"];
     NSString *appPath = [[NSBundle mainBundle] bundlePath];
     unsigned count = 0;
@@ -44,6 +48,10 @@
                 BOOL hit = NO;
                 for (NSString *kw in keywords)
                     if ([lower containsString:kw] || [lowerClass containsString:kw]) { hit = YES; break; }
+                if (!hit && ([lower containsString:@"video"] || [lower containsString:@"pickerquality"])) {
+                    for (NSString *vw in videoWords)
+                        if ([lower containsString:vw]) { hit = YES; break; }
+                }
                 if (!hit) continue;
                 for (NSString *nz in noise)
                     if ([lower containsString:nz] || [lowerClass containsString:nz]) { hit = NO; break; }
