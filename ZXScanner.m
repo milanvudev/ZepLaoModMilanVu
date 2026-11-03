@@ -30,6 +30,46 @@
     NSMutableString *out = [NSMutableString stringWithFormat:@"# ZaloXposed scan - %u classes total\n# format: [+/-][Class sel] returnType args | image\n", count];
     NSUInteger lines = 0;
 
+    // Pre-pass: every method of the long-press menu classes (ContextMenu*, ZCAMenu*, message menus), tracking classes skipped.
+    {
+        NSArray<NSString *> *menuClasses = @[@"contextmenu", @"zcamenu", @"messagemenu", @"chatmenu", @"menuitem", @"longpressmenu"];
+        NSArray<NSString *> *skipClasses = @[@"tracking", @"inbox", @"zds", @"lottie"];
+        [out appendString:@"# ---- menu classes (full dump) ----\n"];
+        NSUInteger menuLines = 0;
+        for (unsigned i = 0; i < count && menuLines < 900; i++) {
+            Class c = classes[i];
+            const char *image = class_getImageName(c);
+            if (!image || strncmp(image, appPath.UTF8String, appPath.length) != 0) continue;
+            NSString *cname = NSStringFromClass(c);
+            NSString *lc = cname.lowercaseString;
+            BOOL isMenu = NO, skip = NO;
+            for (NSString *m in menuClasses) if ([lc containsString:m]) { isMenu = YES; break; }
+            for (NSString *k in skipClasses) if ([lc containsString:k]) { skip = YES; break; }
+            if (!isMenu || skip) continue;
+            for (int meta = 0; meta < 2; meta++) {
+                Class k = meta ? object_getClass(c) : c;
+                unsigned mc = 0;
+                Method *ms = class_copyMethodList(k, &mc);
+                for (unsigned j = 0; j < mc; j++) {
+                    NSString *sel = NSStringFromSelector(method_getName(ms[j]));
+                    if ([sel hasPrefix:@".cxx"] || [sel.lowercaseString containsString:@"tracking"]) continue;
+                    char *ret = method_copyReturnType(ms[j]);
+                    NSMutableString *args = [NSMutableString new];
+                    for (unsigned a = 2; a < method_getNumberOfArguments(ms[j]); a++) {
+                        char *t = method_copyArgumentType(ms[j], a);
+                        [args appendFormat:@"%s ", t ?: "?"];
+                        free(t);
+                    }
+                    [out appendFormat:@"%c[%@ %@] ret=%s args=%@\n", meta ? '+' : '-', cname, sel, ret ?: "?", args];
+                    free(ret);
+                    menuLines++;
+                }
+                free(ms);
+            }
+        }
+        [out appendString:@"# ---- keyword matches ----\n"];
+    }
+
     for (unsigned i = 0; i < count && lines < 2500; i++) {
         Class c = classes[i];
         const char *image = class_getImageName(c);
