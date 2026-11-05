@@ -1252,21 +1252,47 @@ static void ZXHookSettingsButton(void)
 
 static const char kZXTabBarStyledKey;
 
-static UITabBar *ZXFindTabBar(UIView *root)
+/// Zalo's own tab bar is ZDSTabBar (its design-system library), so we match by class name
+/// containing "tabbar" as well as isKindOfClass:[UITabBar class], in case it is not a real
+/// UITabBar subclass. Requires more than one subview and a reasonably wide frame so we don't
+/// grab an unrelated helper view that happens to share part of the name.
+static UIView *ZXFindTabBar(UIView *root)
 {
     if (!root) return nil;
-    if ([root isKindOfClass:[UITabBar class]]) return (UITabBar *)root;
+    NSString *lc = NSStringFromClass(root.class).lowercaseString;
+    if (([lc containsString:@"tabbar"] || [root isKindOfClass:[UITabBar class]])
+        && root.subviews.count > 1 && root.bounds.size.width > 100)
+        return root;
     for (UIView *v in root.subviews) {
-        UITabBar *found = ZXFindTabBar(v);
+        UIView *found = ZXFindTabBar(v);
         if (found) return found;
     }
     return nil;
 }
 
+static UIView *ZXFindTabBarInAnyWindow(void)
+{
+    for (UIWindow *w in UIApplication.sharedApplication.windows) {
+        UIView *found = ZXFindTabBar(w);
+        if (found) return found;
+    }
+    return nil;
+}
+
+static NSString *ZXClassChain(Class c)
+{
+    NSMutableString *s = [NSMutableString new];
+    for (int i = 0; c && i < 6; i++, c = class_getSuperclass(c)) {
+        if (s.length) [s appendString:@" < "];
+        [s appendString:NSStringFromClass(c)];
+    }
+    return s;
+}
+
 /// Computes the floating/pill frame from `proposed`, the frame UIKit itself just tried to assign
 /// (full width, pinned to the very bottom). We only use its width and bottom edge as a reference
 /// so this keeps working across rotations and keyboard changes.
-static CGRect ZXFloatingTabBarFrame(UITabBar *bar, CGRect proposed)
+static CGRect ZXFloatingTabBarFrame(UIView *bar, CGRect proposed)
 {
     CGFloat width = proposed.size.width > 0 ? proposed.size.width : bar.superview.bounds.size.width;
     CGFloat bottom = proposed.origin.y + proposed.size.height;
@@ -1278,7 +1304,7 @@ static CGRect ZXFloatingTabBarFrame(UITabBar *bar, CGRect proposed)
     return CGRectMake(margin, y, width - margin * 2, height);
 }
 
-static void ZXStyleTabBarOnce(UITabBar *bar)
+static void ZXStyleTabBarOnce(UIView *bar)
 {
     if (objc_getAssociatedObject(bar, &kZXTabBarStyledKey)) return;
     objc_setAssociatedObject(bar, &kZXTabBarStyledKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -1293,17 +1319,25 @@ static void ZXStyleTabBarOnce(UITabBar *bar)
     bar.layer.shadowRadius = 14;
     bar.layer.shadowOffset = CGSizeMake(0, 6);
 
-    if (@available(iOS 13.0, *)) {
-        UITabBarAppearance *ap = [UITabBarAppearance new];
-        [ap configureWithTransparentBackground];
-        ap.backgroundColor = UIColor.clearColor;
-        ap.shadowColor = UIColor.clearColor;
-        bar.standardAppearance = ap;
-        if (@available(iOS 15.0, *)) bar.scrollEdgeAppearance = ap;
+    if ([bar isKindOfClass:[UITabBar class]]) {
+        UITabBar *tb = (UITabBar *)bar;
+        if (@available(iOS 13.0, *)) {
+            UITabBarAppearance *ap = [UITabBarAppearance new];
+            [ap configureWithTransparentBackground];
+            ap.backgroundColor = UIColor.clearColor;
+            ap.shadowColor = UIColor.clearColor;
+            tb.standardAppearance = ap;
+            if (@available(iOS 15.0, *)) tb.scrollEdgeAppearance = ap;
+        } else {
+            tb.backgroundImage = [UIImage new];
+            tb.shadowImage = [UIImage new];
+            tb.translucent = YES;
+        }
     } else {
-        bar.backgroundImage = [UIImage new];
-        bar.shadowImage = [UIImage new];
-        bar.translucent = YES;
+        // Not a real UITabBar (e.g. Zalo's own ZDSTabBar): best effort, just clear what we can.
+        bar.backgroundColor = UIColor.clearColor;
+        bar.opaque = NO;
+        @try { [bar setValue:[UIImage new] forKey:@"backgroundImage"]; } @catch (__unused id e) {}
     }
 
     UIVisualEffectView *glass = [[UIVisualEffectView alloc] initWithEffect:ZXGlassEffect()];
@@ -1316,7 +1350,7 @@ static void ZXStyleTabBarOnce(UITabBar *bar)
     [bar insertSubview:glass atIndex:0];
 }
 
-static void ZXUnstyleTabBar(UITabBar *bar)
+static void ZXUnstyleTabBar(UIView *bar)
 {
     if (!objc_getAssociatedObject(bar, &kZXTabBarStyledKey)) return;
     objc_setAssociatedObject(bar, &kZXTabBarStyledKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -1325,20 +1359,23 @@ static void ZXUnstyleTabBar(UITabBar *bar)
     bar.layer.shadowOpacity = 0;
     for (UIView *v in bar.subviews.copy)
         if ([v isKindOfClass:[UIVisualEffectView class]]) [v removeFromSuperview];
-    if (@available(iOS 13.0, *)) {
-        UITabBarAppearance *def = [UITabBarAppearance new];
-        [def configureWithDefaultBackground];
-        bar.standardAppearance = def;
-        if (@available(iOS 15.0, *)) bar.scrollEdgeAppearance = def;
-    } else {
-        bar.backgroundImage = nil;
-        bar.shadowImage = nil;
+    if ([bar isKindOfClass:[UITabBar class]]) {
+        UITabBar *tb = (UITabBar *)bar;
+        if (@available(iOS 13.0, *)) {
+            UITabBarAppearance *def = [UITabBarAppearance new];
+            [def configureWithDefaultBackground];
+            tb.standardAppearance = def;
+            if (@available(iOS 15.0, *)) tb.scrollEdgeAppearance = def;
+        } else {
+            tb.backgroundImage = nil;
+            tb.shadowImage = nil;
+        }
     }
 }
 
 static BOOL ZXFloatingTabBarOn(void) { return [ZXConfig boolForKey:ZXK_FLOATING_TABBAR] && !ZXReduceTransparency(); }
 
-static void ZXApplyFloatingTabBarState(UITabBar *bar)
+static void ZXApplyFloatingTabBarState(UIView *bar)
 {
     if (!bar) return;
     if (ZXFloatingTabBarOn()) {
@@ -1353,9 +1390,11 @@ static void ZXApplyFloatingTabBarState(UITabBar *bar)
 
 /// Finds the live tab bar (if Zalo uses one) and swizzles -setFrame: on its concrete runtime
 /// class once, so every future relayout keeps honoring the floating position while the toggle is on.
+/// Logs what it found the first time, even when the toggle is off, so a build's log says whether
+/// the tab bar was located at all and what class it actually is.
 static void ZXHookFloatingTabBar(void)
 {
-    UITabBar *bar = ZXFindTabBar(ZXKeyWindow());
+    UIView *bar = ZXFindTabBarInAnyWindow();
     if (!bar) return;
     Class cls = object_getClass(bar);
     static NSMutableSet<NSString *> *hooked;
@@ -1363,11 +1402,16 @@ static void ZXHookFloatingTabBar(void)
     NSString *clsName = NSStringFromClass(cls);
     if ([hooked containsObject:clsName]) { ZXApplyFloatingTabBarState(bar); return; }
 
+    NSMutableString *subs = [NSMutableString new];
+    for (UIView *v in bar.subviews) [subs appendFormat:@"%@(%@) ", NSStringFromClass(v.class), NSStringFromCGRect(v.frame)];
+    ZXLog(@"tab bar candidate: %@ | chain: %@ | frame=%@ | subviews: %@",
+          clsName, ZXClassChain(cls), NSStringFromCGRect(bar.frame), subs);
+
     SEL sel = @selector(setFrame:);
     Method m = class_getInstanceMethod(cls, sel);
     if (!m) return;
     IMP orig = method_getImplementation(m);
-    IMP newImp = imp_implementationWithBlock(^(UITabBar *self_, CGRect frame) {
+    IMP newImp = imp_implementationWithBlock(^(UIView *self_, CGRect frame) {
         if (ZXFloatingTabBarOn()) frame = ZXFloatingTabBarFrame(self_, frame);
         ((void (*)(id, SEL, CGRect))orig)(self_, sel, frame);
     });
@@ -1388,7 +1432,12 @@ static void ZXHookFloatingTabBar(void)
     [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidFinishLaunchingNotification
                                                       object:nil queue:NSOperationQueue.mainQueue
                                                   usingBlock:^(NSNotification *n) { ZXHookSettingsButton(); }];
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ ZXHookSettingsButton(); ZXHookFloatingTabBar(); });
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ ZXHookSettingsButton(); });
+    // The tab bar may not exist yet right after launch (splash/login screens first), so keep
+    // trying every 3s for the first minute instead of relying on a single delayed check.
+    for (int i = 1; i <= 20; i++) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, i * 3 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ ZXHookFloatingTabBar(); });
+    }
     [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidBecomeActiveNotification
                                                       object:nil queue:NSOperationQueue.mainQueue
                                                   usingBlock:^(NSNotification *n) { [self attachGesture]; [ZXBubble restoreIfNeeded]; ZXHookFloatingTabBar(); }];
