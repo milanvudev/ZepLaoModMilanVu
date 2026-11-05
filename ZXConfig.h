@@ -17,6 +17,7 @@
 #define ZXK_DEFAULT_ORIGINAL       @"default_original_quality"
 #define ZXK_VIDEO_ORIGINAL         @"video_original"
 #define ZXK_TTL_OVERRIDE           @"enable_msg_ttl_override"
+#define ZXK_FLOATING_TABBAR        @"floating_tabbar_glass"
 
 @interface ZXConfig : NSObject
 + (void)registerDefaults;
