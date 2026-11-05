@@ -277,6 +277,7 @@ static NSString *ZXBackgroundPath(void)
 static UIVisualEffect *ZXGlassEffect(void);
 static BOOL ZXGlassOn(void);
 static void ZXHookFloatingTabBar(void);
+static BOOL ZXFloatingTabBarOn(void);
 
 @interface ZXCardCell : UITableViewCell
 - (void)applyCardStyle;
@@ -1302,6 +1303,120 @@ static CGRect ZXFloatingTabBarFrame(UIView *bar, CGRect proposed)
     CGFloat margin = 14, height = 56;
     CGFloat y = bottom - height - MAX(safeBottom, 8) - 6;
     return CGRectMake(margin, y, width - margin * 2, height);
+}
+
+// ---- press-and-drag "liquid" blob -------------------------------------------------------
+//
+// A glass pill that tracks the finger while the person long-presses and drags across the tab
+// bar, snapping to whichever item is nearest with a springy (slightly overshooting) animation
+// so the motion reads as elastic/liquid rather than a plain slide. Lifting the finger over an
+// item simulates a tap on that item's own button (UITabBarButton is a UIControl, so this is the
+// same mechanism a real touch would trigger) so dragging actually switches tabs, the way sliding
+// a finger across Control Center's own glass controls selects whatever is underneath it.
+
+@interface ZXTabBarBlob : NSObject
+@property (nonatomic, weak) UIView *bar;
+@property (nonatomic, weak) UIVisualEffectView *blob;
+@property (nonatomic, weak) UILongPressGestureRecognizer *gesture;
+@end
+
+@implementation ZXTabBarBlob
+
+- (NSArray<UIView *> *)buttonsSortedByX
+{
+    NSMutableArray<UIView *> *btns = [NSMutableArray new];
+    for (UIView *v in self.bar.subviews)
+        if ([NSStringFromClass(v.class) containsString:@"TabBarButton"]) [btns addObject:v];
+    [btns sortUsingComparator:^NSComparisonResult(UIView *a, UIView *b) {
+        if (a.frame.origin.x < b.frame.origin.x) return NSOrderedAscending;
+        if (a.frame.origin.x > b.frame.origin.x) return NSOrderedDescending;
+        return NSOrderedSame;
+    }];
+    return btns;
+}
+
+- (UIView *)buttonNearestX:(CGFloat)x among:(NSArray<UIView *> *)btns
+{
+    UIView *best = nil;
+    CGFloat bestDist = CGFLOAT_MAX;
+    for (UIView *b in btns) {
+        CGFloat cx = b.frame.origin.x + b.frame.size.width / 2;
+        CGFloat d = fabs(cx - x);
+        if (d < bestDist) { bestDist = d; best = b; }
+    }
+    return best;
+}
+
+- (void)moveBlobTo:(UIView *)button
+{
+    if (!button || !self.blob) return;
+    CGRect target = CGRectInset(button.frame, -6, -6);
+    [UIView animateWithDuration:0.42 delay:0 usingSpringWithDamping:0.55 initialSpringVelocity:0.6
+                        options:UIViewAnimationOptionAllowUserInteraction animations:^{
+        self.blob.frame = target;
+        self.blob.alpha = 1;
+    } completion:nil];
+}
+
+- (void)handlePress:(UILongPressGestureRecognizer *)g
+{
+    UIView *bar = self.bar;
+    if (!bar || !ZXFloatingTabBarOn() || ZXReduceMotion()) { self.blob.alpha = 0; return; }
+    CGPoint pt = [g locationInView:bar];
+    NSArray<UIView *> *btns = [self buttonsSortedByX];
+    UIView *target = [self buttonNearestX:pt.x among:btns];
+
+    switch (g.state) {
+        case UIGestureRecognizerStateBegan:
+        case UIGestureRecognizerStateChanged:
+            [self moveBlobTo:target];
+            break;
+        case UIGestureRecognizerStateEnded:
+            if ([target isKindOfClass:[UIControl class]])
+                [(UIControl *)target sendActionsForControlEvents:UIControlEventTouchUpInside];
+            [UIView animateWithDuration:0.25 delay:0.12 options:0 animations:^{ self.blob.alpha = 0; } completion:nil];
+            break;
+        case UIGestureRecognizerStateCancelled:
+        case UIGestureRecognizerStateFailed:
+            [UIView animateWithDuration:0.2 animations:^{ self.blob.alpha = 0; }];
+            break;
+        default:
+            break;
+    }
+}
+@end
+
+static const char kZXTabBarBlobKey;
+
+static void ZXAttachTabBarBlob(UIView *bar)
+{
+    if (objc_getAssociatedObject(bar, &kZXTabBarBlobKey)) return;
+    UIVisualEffectView *blob = [[UIVisualEffectView alloc] initWithEffect:ZXGlassEffect()];
+    blob.userInteractionEnabled = NO;
+    blob.alpha = 0;
+    blob.layer.cornerRadius = 20;
+    if (@available(iOS 13.0, *)) blob.layer.cornerCurve = kCACornerCurveContinuous;
+    blob.clipsToBounds = YES;
+    [bar insertSubview:blob atIndex:1]; // above our background glass, below the tab buttons
+
+    ZXTabBarBlob *h = [ZXTabBarBlob new];
+    h.bar = bar;
+    h.blob = blob;
+    UILongPressGestureRecognizer *g = [[UILongPressGestureRecognizer alloc] initWithTarget:h action:@selector(handlePress:)];
+    g.minimumPressDuration = 0.12;
+    g.cancelsTouchesInView = NO; // let Zalo's own tap-to-switch keep working for a plain tap
+    [bar addGestureRecognizer:g];
+    h.gesture = g;
+    objc_setAssociatedObject(bar, &kZXTabBarBlobKey, h, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+static void ZXDetachTabBarBlob(UIView *bar)
+{
+    ZXTabBarBlob *h = objc_getAssociatedObject(bar, &kZXTabBarBlobKey);
+    if (!h) return;
+    [h.blob removeFromSuperview];
+    if (h.gesture) [bar removeGestureRecognizer:h.gesture];
+    objc_setAssociatedObject(bar, &kZXTabBarBlobKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
 static void ZXStyleTabBarOnce(UIView *bar)
