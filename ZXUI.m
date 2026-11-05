@@ -276,6 +276,7 @@ static NSString *ZXBackgroundPath(void)
 
 static UIVisualEffect *ZXGlassEffect(void);
 static BOOL ZXGlassOn(void);
+static void ZXHookFloatingTabBar(void);
 
 @interface ZXCardCell : UITableViewCell
 - (void)applyCardStyle;
@@ -375,6 +376,7 @@ static NSArray<NSDictionary *> *ZXCategories(void)
         ]},
         @{ @"title": @"Giao diện", @"icon": @"paintbrush", @"desc": @"Nền, kính, hiệu ứng", @"items": @[
             @{ @"key": ZXK_LIQUID_GLASS, @"title": @"Liquid Glass", @"sub": @"Ô menu, nút Thu gọn/Xong và các hàng tính năng dùng kính trong suốt", @"kw": @"kính glass" },
+            @{ @"key": ZXK_FLOATING_TABBAR, @"title": @"Thanh tab nổi, kính lỏng (thử nghiệm)", @"sub": @"Biến thanh Tin nhắn/Danh bạ/… dưới cùng thành thanh nổi bo tròn, kính trong suốt. Có thể chưa đổi ngay, quay lại màn hình chính hoặc thoát app để thấy", @"kw": @"tabbar floating pill kính lỏng" },
             @{ @"action": @"bgpick", @"title": @"Đổi ảnh nền", @"sub": @"Chọn ảnh từ thư viện, kéo và thu phóng để cắt", @"kw": @"background wallpaper" },
             @{ @"action": @"bgreset", @"title": @"Dùng lại nền phong cảnh" },
         ]},
@@ -653,6 +655,8 @@ static UIColor *ZXAccentText(void) { return [UIColor colorWithRed:0.02 green:0.3
             [UIView transitionWithView:self.tableView duration:0.45 options:UIViewAnimationOptionTransitionCrossDissolve
                             animations:^{ [self.tableView reloadData]; } completion:nil];
         });
+    } else if ([item[@"key"] isEqualToString:ZXK_FLOATING_TABBAR]) {
+        ZXHookFloatingTabBar();
     }
 }
 
@@ -1236,6 +1240,142 @@ static void ZXHookSettingsButton(void)
     ZXLog(@"settings button hooked");
 }
 
+// ---------------------------------------------------------------- floating glass tab bar (experimental)
+//
+// Assumes Zalo's bottom bar (Tin nhắn / Danh bạ / Khám phá / Tường nhà / Cá nhân) is a real
+// UITabBar, found by walking the key window's view hierarchy. If Zalo instead draws it with a
+// fully custom view, ZXFindTabBar finds nothing and this whole feature silently does nothing.
+// The float effect works by rewriting the frame UIKit itself assigns to the bar: we swizzle
+// -setFrame: on the bar's own runtime class (not the static UITabBar class, in case Zalo
+// subclasses it and overrides layoutSubviews/setFrame: itself), so the inset position survives
+// every relayout (rotation, keyboard, safe-area changes) instead of being reset back to full width.
+
+static const char kZXTabBarStyledKey;
+
+static UITabBar *ZXFindTabBar(UIView *root)
+{
+    if (!root) return nil;
+    if ([root isKindOfClass:[UITabBar class]]) return (UITabBar *)root;
+    for (UIView *v in root.subviews) {
+        UITabBar *found = ZXFindTabBar(v);
+        if (found) return found;
+    }
+    return nil;
+}
+
+/// Computes the floating/pill frame from `proposed`, the frame UIKit itself just tried to assign
+/// (full width, pinned to the very bottom). We only use its width and bottom edge as a reference
+/// so this keeps working across rotations and keyboard changes.
+static CGRect ZXFloatingTabBarFrame(UITabBar *bar, CGRect proposed)
+{
+    CGFloat width = proposed.size.width > 0 ? proposed.size.width : bar.superview.bounds.size.width;
+    CGFloat bottom = proposed.origin.y + proposed.size.height;
+    if (width <= 0 || bottom <= 0) return proposed;
+    UIWindow *w = bar.window ?: ZXKeyWindow();
+    CGFloat safeBottom = w ? w.safeAreaInsets.bottom : 0;
+    CGFloat margin = 14, height = 56;
+    CGFloat y = bottom - height - MAX(safeBottom, 8) - 6;
+    return CGRectMake(margin, y, width - margin * 2, height);
+}
+
+static void ZXStyleTabBarOnce(UITabBar *bar)
+{
+    if (objc_getAssociatedObject(bar, &kZXTabBarStyledKey)) return;
+    objc_setAssociatedObject(bar, &kZXTabBarStyledKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+
+    bar.layer.cornerRadius = 26;
+    if (@available(iOS 13.0, *)) bar.layer.cornerCurve = kCACornerCurveContinuous;
+    bar.layer.masksToBounds = NO; // the glass subview clips itself; the bar's own layer keeps the drop shadow
+    bar.layer.borderWidth = 0.5;
+    bar.layer.borderColor = [UIColor colorWithWhite:1 alpha:0.2].CGColor;
+    bar.layer.shadowColor = UIColor.blackColor.CGColor;
+    bar.layer.shadowOpacity = 0.2;
+    bar.layer.shadowRadius = 14;
+    bar.layer.shadowOffset = CGSizeMake(0, 6);
+
+    if (@available(iOS 13.0, *)) {
+        UITabBarAppearance *ap = [UITabBarAppearance new];
+        [ap configureWithTransparentBackground];
+        ap.backgroundColor = UIColor.clearColor;
+        ap.shadowColor = UIColor.clearColor;
+        bar.standardAppearance = ap;
+        if (@available(iOS 15.0, *)) bar.scrollEdgeAppearance = ap;
+    } else {
+        bar.backgroundImage = [UIImage new];
+        bar.shadowImage = [UIImage new];
+        bar.translucent = YES;
+    }
+
+    UIVisualEffectView *glass = [[UIVisualEffectView alloc] initWithEffect:ZXGlassEffect()];
+    glass.frame = bar.bounds;
+    glass.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    glass.layer.cornerRadius = 26;
+    if (@available(iOS 13.0, *)) glass.layer.cornerCurve = kCACornerCurveContinuous;
+    glass.clipsToBounds = YES;
+    glass.userInteractionEnabled = NO;
+    [bar insertSubview:glass atIndex:0];
+}
+
+static void ZXUnstyleTabBar(UITabBar *bar)
+{
+    if (!objc_getAssociatedObject(bar, &kZXTabBarStyledKey)) return;
+    objc_setAssociatedObject(bar, &kZXTabBarStyledKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    bar.layer.cornerRadius = 0;
+    bar.layer.borderWidth = 0;
+    bar.layer.shadowOpacity = 0;
+    for (UIView *v in bar.subviews.copy)
+        if ([v isKindOfClass:[UIVisualEffectView class]]) [v removeFromSuperview];
+    if (@available(iOS 13.0, *)) {
+        bar.standardAppearance = nil;
+        if (@available(iOS 15.0, *)) bar.scrollEdgeAppearance = nil;
+    } else {
+        bar.backgroundImage = nil;
+        bar.shadowImage = nil;
+    }
+}
+
+static BOOL ZXFloatingTabBarOn(void) { return [ZXConfig boolForKey:ZXK_FLOATING_TABBAR] && !ZXReduceTransparency(); }
+
+static void ZXApplyFloatingTabBarState(UITabBar *bar)
+{
+    if (!bar) return;
+    if (ZXFloatingTabBarOn()) {
+        ZXStyleTabBarOnce(bar);
+        CGRect full = bar.superview ? bar.superview.bounds : bar.frame;
+        bar.frame = ZXFloatingTabBarFrame(bar, full); // runs through our swizzled -setFrame: below
+    } else {
+        ZXUnstyleTabBar(bar);
+        [bar setNeedsLayout];
+    }
+}
+
+/// Finds the live tab bar (if Zalo uses one) and swizzles -setFrame: on its concrete runtime
+/// class once, so every future relayout keeps honoring the floating position while the toggle is on.
+static void ZXHookFloatingTabBar(void)
+{
+    UITabBar *bar = ZXFindTabBar(ZXKeyWindow());
+    if (!bar) return;
+    Class cls = object_getClass(bar);
+    static NSMutableSet<NSString *> *hooked;
+    if (!hooked) hooked = [NSMutableSet new];
+    NSString *clsName = NSStringFromClass(cls);
+    if ([hooked containsObject:clsName]) { ZXApplyFloatingTabBarState(bar); return; }
+
+    SEL sel = @selector(setFrame:);
+    Method m = class_getInstanceMethod(cls, sel);
+    if (!m) return;
+    IMP orig = method_getImplementation(m);
+    IMP newImp = imp_implementationWithBlock(^(UITabBar *self_, CGRect frame) {
+        if (ZXFloatingTabBarOn()) frame = ZXFloatingTabBarFrame(self_, frame);
+        ((void (*)(id, SEL, CGRect))orig)(self_, sel, frame);
+    });
+    if (!class_addMethod(cls, sel, newImp, method_getTypeEncoding(m)))
+        method_setImplementation(m, newImp);
+    [hooked addObject:clsName];
+    ZXLog(@"floating tab bar hooked on %@", clsName);
+    ZXApplyFloatingTabBarState(bar);
+}
+
 // ---------------------------------------------------------------- installer
 
 @implementation ZXUI
@@ -1246,10 +1386,10 @@ static void ZXHookSettingsButton(void)
     [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidFinishLaunchingNotification
                                                       object:nil queue:NSOperationQueue.mainQueue
                                                   usingBlock:^(NSNotification *n) { ZXHookSettingsButton(); }];
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ ZXHookSettingsButton(); });
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ ZXHookSettingsButton(); ZXHookFloatingTabBar(); });
     [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidBecomeActiveNotification
                                                       object:nil queue:NSOperationQueue.mainQueue
-                                                  usingBlock:^(NSNotification *n) { [self attachGesture]; [ZXBubble restoreIfNeeded]; }];
+                                                  usingBlock:^(NSNotification *n) { [self attachGesture]; [ZXBubble restoreIfNeeded]; ZXHookFloatingTabBar(); }];
 }
 
 + (void)attachGesture
