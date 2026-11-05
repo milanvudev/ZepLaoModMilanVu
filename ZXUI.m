@@ -1326,8 +1326,10 @@ static void ZXUnstyleTabBar(UITabBar *bar)
     for (UIView *v in bar.subviews.copy)
         if ([v isKindOfClass:[UIVisualEffectView class]]) [v removeFromSuperview];
     if (@available(iOS 13.0, *)) {
-        bar.standardAppearance = nil;
-        if (@available(iOS 15.0, *)) bar.scrollEdgeAppearance = nil;
+        UITabBarAppearance *def = [UITabBarAppearance new];
+        [def configureWithDefaultBackground];
+        bar.standardAppearance = def;
+        if (@available(iOS 15.0, *)) bar.scrollEdgeAppearance = def;
     } else {
         bar.backgroundImage = nil;
         bar.shadowImage = nil;
