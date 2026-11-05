@@ -34,6 +34,7 @@ static NSUserDefaults *ZXDefaults(void)
         ZXK_UNLIMITED_MEDIA: @NO,
         ZXK_DEFAULT_ORIGINAL: @YES,
         ZXK_VIDEO_ORIGINAL: @YES,
+        ZXK_FLOATING_TABBAR: @NO,
         kTTL: @0,
         kUID: @"",
     }];
