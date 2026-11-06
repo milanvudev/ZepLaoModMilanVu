@@ -1,67 +1,82 @@
-# Zép Lào Mod của MilanVu (bản port iOS từ ZaloXposed Android)
+# 🌙 Zép Lào Mod của MilanVu
 
-Bản mod này dựa trên ZaloXposed của ElectroHeavenVN (AGPL-3.0). Giữ nguyên giấy phép và ghi công tác giả gốc.
+**Tweak Theos cho Zalo iOS** — bản port lấy cảm hứng từ [ZaloXposed](https://github.com/ElectroHeavenVN/ZaloXposed) (Android), viết lại hoàn toàn bằng Objective-C runtime cho `vn.com.vng.zingalo`.
 
-Tweak Theos cho Zalo iOS, port từ https://github.com/ElectroHeavenVN/ZaloXposed (AGPL-3.0, giữ nguyên giấy phép).
-Dùng thuần Objective-C runtime, không cần Logos.
+> ⚠️ Chỉ dùng cho mục đích cá nhân, học tập. Yêu cầu máy đã jailbreak (rootful/rootless) hoặc sideload qua Sideloadly/TrollStore tuỳ bản build.
 
-> Dùng tweak có thể vi phạm điều khoản của Zalo và có nguy cơ bị khóa tài khoản. Tự chịu rủi ro.
+---
 
-## Trạng thái từng tính năng (đọc kỹ)
+## ✨ Tính năng
 
-Bản Android hook vào class Java đã bị obfuscate, tìm bằng DexKit theo chuỗi/hằng số. iOS không có các class đó,
-và tên class/method của Zalo iOS không có trong repo gốc. Vì vậy:
-
-| Tính năng | Trạng thái |
+### 👻 Quyền riêng tư
+| Tính năng | Mô tả |
 |---|---|
-| Chặn endpoint ads / QoS / tracking / Firebase | Chạy ngay (hook NSURLSession). Chỉ có tác dụng với request đi qua NSURLSession; nếu Zalo dùng socket/curl riêng thì không chặn được. |
-| Firebase Analytics `logEventWithName:` | Chạy ngay (rule mặc định, chỉ có tác dụng nếu app có FIRAnalytics) |
-| Anti-Recall / Anti-Delete | Logic đã port đầy đủ (`ZXAntiRecall.m`), **cần bạn trỏ vào đúng method nhận gói tin** (1 rule) |
-| Chặn "Đã xem", Không gửi "Đang nhập" | Engine sẵn sàng, **cần rule trỏ vào đúng method** |
-| Ghi đè TTL | Engine sẵn sàng, **cần rule** |
-| Màn hình cài đặt trong app | Chạy ngay: nút "Zép Lào Mod của MilanVu" ở cuối trang Cài đặt của Zalo (hoặc nhấn giữ 3 ngón tay 0.8 giây) |
-| Không port | Mở khóa tính năng trả phí (Z Cloud), spoof chữ ký/package, Chat Head, menu/tab tùy biến, Google Drive backup (đặc thù Android hoặc né thanh toán) |
+| 🙈 Chặn "Đã xem" | Đọc tin thoải mái, người gửi không biết bạn đã xem |
+| ⌨️ Ẩn "Đang nhập" | Soạn tin không bị lộ trạng thái đang gõ |
 
-Chưa có bản build thử trên thiết bị: môi trường tạo gói này không có Theos/iOS SDK, nên code chưa được biên dịch.
-Nếu build lỗi, gửi log cho mình để sửa.
+### ↩️ Tin thu hồi & tin xóa
+| Tính năng | Mô tả |
+|---|---|
+| 🛡️ Giữ tin bị thu hồi | Tin vẫn hiển thị trong khung chat dù người kia đã thu hồi |
+| 📝 Hiện nội dung tin bị thu hồi/xóa | Nội dung được lưu tạm ngay trên máy bạn |
+| 🏷️ Nhãn "đã thu hồi" | Hiện chữ nhỏ mờ trong khung tin được giữ lại, không làm rối giao diện |
+| 🧍 Tuỳ chọn áp dụng cho tin do chính bạn thu hồi/xóa | Bật riêng nếu muốn giữ luôn cả tin của mình |
+| 📜 Lịch sử tin bị thu hồi/xóa | Xem lại toàn bộ theo thời gian |
+| 🧹 Quản lý: xoá đánh dấu, xoá cache tin nhắn, xem User ID | Vài công cụ dọn dẹp nhanh |
 
-## Tìm target hook (làm 1 lần cho mỗi phiên bản Zalo)
+### 🚫 Quảng cáo & theo dõi
+| Tính năng | Mô tả |
+|---|---|
+| 🛑 Chặn quảng cáo | Chặn thẳng các máy chủ ads của Zalo |
+| 🕵️ Tắt tracking | Không gửi log hành vi sử dụng về Zalo |
+| 📡 Chặn log QoS | Bớt được một phần lưu lượng nền |
+| 🔥 Tắt Firebase logging | Chặn luôn Crashlytics/Analytics |
 
-1. Mở Zalo đã tiêm tweak, nhấn giữ 3 ngón tay -> **Quét class/method** -> **Xem / chia sẻ kết quả quét**.
-   Danh sách gồm các method có tên chứa recall/undo/seen/typing/ttl... của app (scan.txt, AirDrop/Lưu vào Files).
-   Cách chính xác hơn: dùng `class-dump` / `dsdump` / Hopper trên IPA đã giải mã.
-2. Chọn đúng method, rồi sửa `rules.json` ngay trong app (Công cụ -> Sửa rules.json). Ví dụ trong `rules.example.json`.
-3. Thoát app và mở lại để rule có hiệu lực. Xem **log.txt** để biết rule nào hook thành công.
+### 🖼️ Ảnh, video, file & tự hủy
+| Tính năng | Mô tả |
+|---|---|
+| 📷 Gửi ảnh **Original** mặc định | Tự chọn sẵn chất lượng gốc, khỏi bấm lại mỗi lần |
+| 🎞️ Gửi video giữ nguyên gốc *(thử nghiệm)* | Can thiệp thẳng vào bước encode để video không bị ép xuống "HD" |
+| 📦 Nâng giới hạn dung lượng gửi | Gửi file/ảnh vượt mức mặc định của Zalo |
+| ⏳ Đặt thời gian tự hủy tin (TTL) | Tin tự biến mất sau khoảng thời gian bạn chọn |
 
-Gợi ý theo logic Android:
-- Anti-Recall: tìm method xử lý gói tin chat nhận về, có tham số là JSON (NSDictionary / NSString / NSData) chứa `chat.undo`,
-  `chat.delete`. Dùng `"action": "antirecall"` + `"argIndex"` (đếm từ 1, không tính self/_cmd). Hook tự tìm đệ quy khóa `msg`.
-- Seen: method gửi danh sách tin đã đọc lên server -> `"action": "skip"`, `"configKey": "block_send_seen"`.
-- Typing: method gửi trạng thái đang gõ -> `"action": "skip"`, `"configKey": "enable_silent_typing"`.
-- TTL: method trả về TTL (số nguyên) -> `"action": "ttl"`.
-- Điền **User ID** của bạn trong cài đặt để phân biệt tin do mình thu hồi/xóa.
+### 🪟 Giao diện — Liquid Glass
+| Tính năng | Mô tả |
+|---|---|
+| 💎 **Liquid Glass** cho bảng cài đặt | Ô menu, nút Thu gọn/Xong, từng hàng tính năng — tất cả dùng vật liệu kính trong suốt kiểu iOS 26, tự fallback sang nền mờ khi bật Reduce Transparency |
+| 🫧 Thanh tab nổi, kính lỏng *(thử nghiệm)* | Biến thanh `Tin nhắn / Danh bạ / Khám phá / Tường nhà / Cá nhân` ở đáy màn hình thành một **viên thuốc nổi, bo tròn, kính trong suốt**, lơ lửng phía trên nội dung |
+| 💧 Hiệu ứng "giọt nước" khi nhấn giữ | Nhấn giữ vào thanh tab rồi kéo qua lại: một viên kính mờ **bám theo ngón tay**, tự "nảy" (spring) và snap sang icon gần nhất — thả tay ra là chuyển tab luôn, y như chạm vào Dynamic Island/Control Center của Apple |
+| 🖌️ Tuỳ chỉnh ảnh nền chat | Chọn ảnh từ thư viện, kéo & thu phóng để cắt vừa khung chat, hoặc quay lại ảnh nền mặc định |
 
-Giới hạn của engine: method chỉ có tham số kiểu số nguyên/con trỏ (tối đa 6), không có tham số float/double/struct,
-kiểu trả về void hoặc số nguyên/con trỏ. Method không đạt sẽ bị bỏ qua và ghi vào log.
+### 🧰 Công cụ nâng cao
+| Tính năng | Mô tả |
+|---|---|
+| 🔍 Quét class/method | Dò runtime của Zalo để tìm hàm có thể hook, phục vụ phát triển mod |
+| 📄 Xem/chia sẻ kết quả quét | Xuất log ra để debug hoặc gửi báo lỗi |
+| ⚙️ Sửa `rules.json` trực tiếp trong app | Chỉnh luật hook mà không cần build lại |
+| 🧾 Xem log realtime | Theo dõi mọi hook đang chạy |
 
-## Build ra file .deb
+---
 
-Cách 1: máy Mac có Theos
-```
-export THEOS=~/theos
-make package FINALPACKAGE=1                              # rootful
-make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless # rootless
-```
-File nằm trong `packages/`.
+## 🛠️ Build
 
-Cách 2: không có Mac -> đẩy thư mục này lên GitHub, tab Actions -> "Build deb" -> Run workflow, tải artifact
-(`.github/workflows/build.yml`, build cả rootful và rootless).
+Repo build qua **GitHub Actions** ([Randomblock1/theos-action](https://github.com/Randomblock1/theos-action)), 2 job song song:
 
-## Tiêm vào Zalo
-- Máy jailbreak: cài .deb. Filter nhắm `vn.com.vng.zingme`. Hãy kiểm tra bundle id Zalo trên máy bạn và sửa `ZaloXposediOS.plist` nếu khác.
-- Không jailbreak: dùng Sideloadly/TrollStore, kéo IPA Zalo (đã giải mã) + file .deb/.dylib vào mục Inject. Nếu báo thiếu Substrate, bật tùy chọn inject Substrate/ElleKit trong Sideloadly.
-- Dữ liệu (rules.json, scan.txt, log.txt) nằm trong thư mục `Documents/ZaloXposed` của app.
+- `build (rootful)`
+- `build (rootless)`
 
-## Cấu trúc
-`Tweak.m` (khởi tạo) · `ZXConfig` (cài đặt) · `ZXHookEngine` (hook theo rules.json) · `ZXAntiRecall` (port `processMsgPayload`) ·
-`ZXNetwork` (chặn request) · `ZXScanner` (tìm target) · `ZXUI` (màn hình cài đặt)
+Sau khi Actions chạy xong, tải file `.deb` tương ứng với kiểu jailbreak của máy ở mục **Artifacts**, rồi cài bằng Sideloadly / Filza / trình quản lý package tuỳ môi trường.
+
+---
+
+## ⚠️ Lưu ý
+
+- Các tính năng đánh dấu *(thử nghiệm)* có thể cần **thoát hẳn app** hoặc **quay lại màn hình chính** để áp dụng.
+- Đổi `rules.json` sai cú pháp có thể khiến mod không hook được gì — dùng chức năng "Xem log" để kiểm tra.
+- Mod phụ thuộc vào cấu trúc nội bộ (private class/selector) của Zalo, nên **mỗi khi Zalo cập nhật phiên bản mới, một vài tính năng có thể cần vá lại**.
+
+---
+
+## 📜 Giấy phép
+
+Dựa trên [ZaloXposed](https://github.com/ElectroHeavenVN/ZaloXposed) — phát hành theo **AGPL-3.0**.
