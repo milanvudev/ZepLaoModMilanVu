@@ -1368,18 +1368,21 @@ static CGRect ZXFloatingTabBarFrame(UIView *bar, CGRect proposed)
 
     switch (g.state) {
         case UIGestureRecognizerStateBegan:
-        case UIGestureRecognizerStateChanged:
+        case UIGestureRecognizerStateChanged: {
             [self moveBlobTo:target];
             break;
-        case UIGestureRecognizerStateEnded:
+        }
+        case UIGestureRecognizerStateEnded: {
             if ([target isKindOfClass:[UIControl class]])
                 [(UIControl *)target sendActionsForControlEvents:UIControlEventTouchUpInside];
             [UIView animateWithDuration:0.25 delay:0.12 options:0 animations:^{ self.blob.alpha = 0; } completion:nil];
             break;
+        }
         case UIGestureRecognizerStateCancelled:
-        case UIGestureRecognizerStateFailed:
+        case UIGestureRecognizerStateFailed: {
             [UIView animateWithDuration:0.2 animations:^{ self.blob.alpha = 0; }];
             break;
+        }
         default:
             break;
     }
@@ -1497,8 +1500,10 @@ static void ZXApplyFloatingTabBarState(UIView *bar)
         ZXStyleTabBarOnce(bar);
         CGRect full = bar.superview ? bar.superview.bounds : bar.frame;
         bar.frame = ZXFloatingTabBarFrame(bar, full); // runs through our swizzled -setFrame: below
+        ZXAttachTabBarBlob(bar);
     } else {
         ZXUnstyleTabBar(bar);
+        ZXDetachTabBarBlob(bar);
         [bar setNeedsLayout];
     }
 }
@@ -1535,129 +1540,6 @@ static void ZXHookFloatingTabBar(void)
     [hooked addObject:clsName];
     ZXLog(@"floating tab bar hooked on %@", clsName);
     ZXApplyFloatingTabBarState(bar);
-    ZXInstallTabBarPressGesture(bar);
-}
-
-// ---------------------------------------------------------------- floating tab bar: press-and-drag glass highlight
-//
-// Press and hold anywhere on the bar, then drag left/right: a translucent pill glides under the
-// finger and snaps between items (à la the iOS 26 Liquid Glass tab/dock highlight). Releasing
-// over an item taps it for real, by forwarding a touch-up-inside to that UITabBarButton — the
-// same event a real tap sends — so Zalo's own tab-switching code runs unmodified. A quick tap
-// never triggers this: the long-press only recognizes after `minimumPressDuration`, so a fast tap
-// finishes and is handled by the button itself before our gesture ever reaches the Began state.
-// This is a spring-animated capsule, not Apple's actual shader-based liquid metaball; it reads as
-// "liquid-ish" but won't merge/distort like the real material.
-
-static const char kZXTabBarPillKey;
-static const char kZXTabBarGestureKey;
-
-@interface ZXTabBarPressHandler : NSObject
-@property (nonatomic, weak) UIView *bar;
-@property (nonatomic, assign) NSInteger lastIndex;
-- (void)handle:(UILongPressGestureRecognizer *)g;
-@end
-
-static NSArray<UIView *> *ZXTabBarButtons(UIView *bar)
-{
-    NSMutableArray<UIView *> *btns = [NSMutableArray new];
-    for (UIView *v in bar.subviews)
-        if ([NSStringFromClass(v.class) containsString:@"TabBarButton"]) [btns addObject:v];
-    [btns sortUsingComparator:^NSComparisonResult(UIView *a, UIView *b) {
-        CGFloat ax = a.frame.origin.x, bx = b.frame.origin.x;
-        return ax < bx ? NSOrderedAscending : (ax > bx ? NSOrderedDescending : NSOrderedSame);
-    }];
-    return btns;
-}
-
-static NSInteger ZXTabBarNearestIndex(NSArray<UIView *> *btns, CGFloat x)
-{
-    NSInteger best = 0;
-    CGFloat bestDist = CGFLOAT_MAX;
-    for (NSInteger i = 0; i < (NSInteger)btns.count; i++) {
-        CGFloat dist = fabs(CGRectGetMidX(btns[i].frame) - x);
-        if (dist < bestDist) { bestDist = dist; best = i; }
-    }
-    return best;
-}
-
-static UIView *ZXTabBarPill(UIView *bar)
-{
-    UIView *pill = objc_getAssociatedObject(bar, &kZXTabBarPillKey);
-    if (pill) return pill;
-    pill = [[UIView alloc] initWithFrame:CGRectZero];
-    pill.backgroundColor = [UIColor colorWithWhite:1 alpha:0.3];
-    pill.layer.cornerRadius = 20;
-    if (@available(iOS 13.0, *)) pill.layer.cornerCurve = kCACornerCurveContinuous;
-    pill.layer.borderWidth = 0.5;
-    pill.layer.borderColor = [UIColor colorWithWhite:1 alpha:0.4].CGColor;
-    pill.userInteractionEnabled = NO;
-    pill.alpha = 0;
-    objc_setAssociatedObject(bar, &kZXTabBarPillKey, pill, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    return pill;
-}
-
-static void ZXTabBarMovePill(UIView *bar, NSInteger index, NSArray<UIView *> *btns)
-{
-    if (index < 0 || index >= (NSInteger)btns.count) return;
-    UIView *pill = ZXTabBarPill(bar);
-    if (pill.superview != bar) [bar insertSubview:pill atIndex:1]; // above our glass background, below the buttons
-    UIView *btn = btns[index];
-    CGFloat h = MIN(CGRectGetHeight(btn.frame) - 6, 40);
-    CGRect target = CGRectMake(CGRectGetMidX(btn.frame) - 26, CGRectGetMidY(btn.frame) - h / 2, 52, h);
-    [UIView animateWithDuration:0.32 delay:0 usingSpringWithDamping:0.6 initialSpringVelocity:0.4
-                        options:UIViewAnimationOptionBeginFromCurrentState | UIViewAnimationOptionAllowUserInteraction
-                     animations:^{ pill.alpha = 1; pill.frame = target; }
-                     completion:nil];
-}
-
-@implementation ZXTabBarPressHandler
-- (void)handle:(UILongPressGestureRecognizer *)g
-{
-    UIView *bar = self.bar;
-    if (!bar) return;
-    if (!ZXFloatingTabBarOn()) { if (g.state == UIGestureRecognizerStateBegan) g.state = UIGestureRecognizerStateCancelled; return; }
-    NSArray<UIView *> *btns = ZXTabBarButtons(bar);
-    if (btns.count < 2) return;
-    CGPoint pt = [g locationInView:bar];
-
-    if (g.state == UIGestureRecognizerStateBegan) {
-        self.lastIndex = ZXTabBarNearestIndex(btns, pt.x);
-        ZXTabBarMovePill(bar, self.lastIndex, btns);
-        if (@available(iOS 10.0, *)) [[[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleLight] impactOccurred];
-    } else if (g.state == UIGestureRecognizerStateChanged) {
-        NSInteger idx = ZXTabBarNearestIndex(btns, pt.x);
-        if (idx != self.lastIndex) {
-            self.lastIndex = idx;
-            ZXTabBarMovePill(bar, idx, btns);
-            if (@available(iOS 10.0, *)) [[UISelectionFeedbackGenerator new] selectionChanged];
-        }
-    } else if (g.state != UIGestureRecognizerStateCancelled || self.lastIndex >= 0) {
-        UIView *pill = ZXTabBarPill(bar);
-        [UIView animateWithDuration:0.18 animations:^{ pill.alpha = 0; }];
-        if (g.state == UIGestureRecognizerStateEnded && self.lastIndex >= 0 && self.lastIndex < (NSInteger)btns.count) {
-            UIView *btn = btns[self.lastIndex];
-            if ([btn isKindOfClass:[UIControl class]])
-                [(UIControl *)btn sendActionsForControlEvents:UIControlEventTouchUpInside];
-        }
-        self.lastIndex = -1;
-    }
-}
-@end
-
-static void ZXInstallTabBarPressGesture(UIView *bar)
-{
-    if (objc_getAssociatedObject(bar, &kZXTabBarGestureKey)) return;
-    ZXTabBarPressHandler *handler = [ZXTabBarPressHandler new];
-    handler.bar = bar;
-    handler.lastIndex = -1;
-    UILongPressGestureRecognizer *lp = [[UILongPressGestureRecognizer alloc] initWithTarget:handler action:@selector(handle:)];
-    lp.minimumPressDuration = 0.12;
-    lp.allowableMovement = 60;
-    [bar addGestureRecognizer:lp];
-    // Retain both the handler and the recognizer on the bar, since addGestureRecognizer: only
-    // weak-references its target.
-    objc_setAssociatedObject(bar, &kZXTabBarGestureKey, @[handler, lp], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
 // ---------------------------------------------------------------- installer
