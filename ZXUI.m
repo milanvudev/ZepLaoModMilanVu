@@ -792,6 +792,22 @@ static UIVisualEffect *ZXGlassEffect(void)
 
 static BOOL ZXGlassOn(void) { return [ZXConfig boolForKey:ZXK_LIQUID_GLASS] && !ZXReduceTransparency(); }
 
+/// A noticeably more transparent glass than ZXGlassEffect() above — used only for the floating
+/// tab bar and its drag "droplet", which have no text to keep readable on top of them (just
+/// Zalo's own icons), unlike the settings panel glass. Lets the chat content behind really show
+/// through, closer to Apple's own Liquid Glass dock/tab bar.
+static UIVisualEffect *ZXTabBarGlassEffect(void)
+{
+    Class gc = NSClassFromString(@"UIGlassEffect");
+    if (gc) {
+        id e = [[gc alloc] init];
+        @try { [e setValue:@YES forKey:@"interactive"]; } @catch (__unused id x) {}
+        @try { [e setValue:[UIColor colorWithWhite:0 alpha:0.12] forKey:@"tintColor"]; } @catch (__unused id x) {}
+        return e;
+    }
+    return [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemUltraThinMaterial];
+}
+
 /// Capsule bar button with a glass background (used for "Thu gọn" / "Xong" when Liquid Glass is on).
 static UIBarButtonItem *ZXGlassBarButton(NSString *title, BOOL bold, id target, SEL action)
 {
@@ -1362,17 +1378,13 @@ static CGRect ZXFloatingTabBarFrame(UIView *bar, CGRect proposed)
     [UIView animateWithDuration:0.42 delay:0 usingSpringWithDamping:0.55 initialSpringVelocity:0.6
                         options:UIViewAnimationOptionAllowUserInteraction animations:^{
         self.blob.frame = target;
-        self.blob.alpha = 1;
+        self.blob.alpha = 0.85;
     } completion:nil];
 }
 
 - (void)handlePress:(UILongPressGestureRecognizer *)g
 {
     UIView *bar = self.bar;
-    // Temporary diagnostic: tells us from the log whether the gesture is firing at all, and if
-    // not, which guard (no bar / floating off / Reduce Motion on) is bailing it out early.
-    ZXLog(@"tab bar press: state=%ld bar=%@ floatingOn=%d reduceMotion=%d",
-          (long)g.state, bar, ZXFloatingTabBarOn(), ZXReduceMotion());
     if (!bar || !ZXFloatingTabBarOn() || ZXReduceMotion()) { self.blob.alpha = 0; return; }
     CGPoint pt = [g locationInView:bar];
     NSArray<UIView *> *btns = [self buttonsSortedByX];
@@ -1406,7 +1418,7 @@ static const char kZXTabBarBlobKey;
 static void ZXAttachTabBarBlob(UIView *bar)
 {
     if (objc_getAssociatedObject(bar, &kZXTabBarBlobKey)) return;
-    UIVisualEffectView *blob = [[UIVisualEffectView alloc] initWithEffect:ZXGlassEffect()];
+    UIVisualEffectView *blob = [[UIVisualEffectView alloc] initWithEffect:ZXTabBarGlassEffect()];
     blob.userInteractionEnabled = NO;
     blob.alpha = 0;
     blob.layer.cornerRadius = 20;
@@ -1418,13 +1430,11 @@ static void ZXAttachTabBarBlob(UIView *bar)
     h.bar = bar;
     h.blob = blob;
     UILongPressGestureRecognizer *g = [[UILongPressGestureRecognizer alloc] initWithTarget:h action:@selector(handlePress:)];
-    g.minimumPressDuration = 0.12;
+    g.minimumPressDuration = 0; // react to a touch+drag immediately, no hold required first
     g.cancelsTouchesInView = NO; // let Zalo's own tap-to-switch keep working for a plain tap
     [bar addGestureRecognizer:g];
     h.gesture = g;
     objc_setAssociatedObject(bar, &kZXTabBarBlobKey, h, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    ZXLog(@"tab bar blob attached: userInteractionEnabled=%d gestureCount=%lu",
-          bar.userInteractionEnabled, (unsigned long)bar.gestureRecognizers.count);
 }
 
 static void ZXDetachTabBarBlob(UIView *bar)
@@ -1472,7 +1482,7 @@ static void ZXStyleTabBarOnce(UIView *bar)
         @try { [bar setValue:[UIImage new] forKey:@"backgroundImage"]; } @catch (__unused id e) {}
     }
 
-    UIVisualEffectView *glass = [[UIVisualEffectView alloc] initWithEffect:ZXGlassEffect()];
+    UIVisualEffectView *glass = [[UIVisualEffectView alloc] initWithEffect:ZXTabBarGlassEffect()];
     glass.frame = bar.bounds;
     glass.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     glass.layer.cornerRadius = 26;
