@@ -1516,7 +1516,9 @@ static void ZXDetachTabBarBlob(UIView *bar)
         UITabBarItem *item = ((UITabBar *)self.bar).selectedItem;
         img = item.selectedImage ?: item.image;
     }
-    if (!img && @available(iOS 13.0, *)) img = [UIImage systemImageNamed:@"circle.grid.2x2.fill"];
+    if (!img) {
+        if (@available(iOS 13.0, *)) img = [UIImage systemImageNamed:@"circle.grid.2x2.fill"];
+    }
     iv.image = [img imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
     iv.tintColor = self.bar.tintColor ?: UIColor.systemBlueColor;
 }
