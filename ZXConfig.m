@@ -2,6 +2,7 @@
 
 static NSString *const kTTL = @"msg_ttl_value";
 static NSString *const kUID = @"current_user_id";
+static NSString *const kTabBarIdle = @"tabbar_idle_seconds";
 
 static NSUserDefaults *ZXDefaults(void)
 {
@@ -37,6 +38,7 @@ static NSUserDefaults *ZXDefaults(void)
         ZXK_FLOATING_TABBAR: @NO,
         kTTL: @0,
         kUID: @"",
+        kTabBarIdle: @10,
     }];
 }
 
@@ -46,6 +48,8 @@ static NSUserDefaults *ZXDefaults(void)
 + (void)setTTL:(long long)value { [ZXDefaults() setObject:@(value) forKey:kTTL]; }
 + (NSString *)currentUserID { return [ZXDefaults() stringForKey:kUID] ?: @""; }
 + (void)setCurrentUserID:(NSString *)value { [ZXDefaults() setObject:(value ?: @"") forKey:kUID]; }
++ (double)tabBarIdleSeconds { return [[ZXDefaults() objectForKey:kTabBarIdle] doubleValue]; }
++ (void)setTabBarIdleSeconds:(double)value { [ZXDefaults() setObject:@(value) forKey:kTabBarIdle]; }
 
 + (NSString *)dataDir
 {
