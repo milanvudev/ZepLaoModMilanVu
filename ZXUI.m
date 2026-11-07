@@ -1594,6 +1594,18 @@ static void ZXDetachTabBarBlob(UIView *bar)
         if (strongSelf && strongSelf.idleGeneration == gen && [ZXConfig tabBarIdleSeconds] > 0) [strongSelf collapse];
     });
 }
+
+/// Zalo hides the real tab bar on screens that aren't one of the 5 main tabs — a photo/media
+/// viewer, a pushed detail screen, and so on — normally by setting it .hidden. Our collapsed
+/// pill is a separate sibling view though (not a subview of the bar), so it does not hide
+/// automatically along with it; without this it would keep floating over screens where Zalo's
+/// own bar is deliberately gone, blocking content that has nothing to do with the tab bar.
+- (void)syncWithBarHidden:(BOOL)barHidden
+{
+    if (!self.pill) return;
+    if (barHidden) self.pill.hidden = YES;
+    else if (self.collapsed) self.pill.hidden = NO;
+}
 @end
 
 static const char kZXTabBarCollapserKey;
@@ -1602,6 +1614,12 @@ static void ZXNoteTabBarInteraction(UIView *bar)
 {
     ZXTabBarCollapser *c = objc_getAssociatedObject(bar, &kZXTabBarCollapserKey);
     [c noteInteraction];
+}
+
+static void ZXSyncTabBarVisibility(UIView *bar)
+{
+    ZXTabBarCollapser *c = objc_getAssociatedObject(bar, &kZXTabBarCollapserKey);
+    [c syncWithBarHidden:bar.hidden];
 }
 
 static void ZXAttachTabBarCollapser(UIView *bar)
@@ -1737,7 +1755,10 @@ static void ZXHookFloatingTabBar(void)
     if (!m) return;
     IMP orig = method_getImplementation(m);
     IMP newImp = imp_implementationWithBlock(^(UIView *self_, CGRect frame) {
-        if (ZXFloatingTabBarOn()) frame = ZXFloatingTabBarFrame(self_, frame);
+        // Only float it while Zalo actually means to show it — not on screens (a photo viewer,
+        // a pushed detail screen) where Zalo hides the real bar; respect that instead of forcing
+        // it back on top of content it has nothing to do with.
+        if (ZXFloatingTabBarOn() && !self_.hidden) frame = ZXFloatingTabBarFrame(self_, frame);
         ((void (*)(id, SEL, CGRect))orig)(self_, sel, frame);
     });
     if (!class_addMethod(cls, sel, newImp, method_getTypeEncoding(m)))
