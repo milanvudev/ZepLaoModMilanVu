@@ -1255,15 +1255,23 @@ static const char kZXTabBarStyledKey;
 
 /// Zalo's own tab bar is ZDSTabBar (its design-system library), so we match by class name
 /// containing "tabbar" as well as isKindOfClass:[UITabBar class], in case it is not a real
-/// UITabBar subclass. Requires more than one subview and a reasonably wide frame so we don't
-/// grab an unrelated helper view that happens to share part of the name.
+/// UITabBar subclass. Requires a reasonably wide frame and at least 2 real tab-item subviews
+/// (not just >1 subview — early during launch UIKit briefly has the bar up with only a single
+/// placeholder UITabBarButton stretched full-width, before Zalo finishes setting its 5 real
+/// items; grabbing it at that moment froze our floating/glass styling onto a single giant
+/// button instead of 5 separate icons) so we don't grab an unrelated helper view, or the real
+/// bar before it is actually populated.
 static UIView *ZXFindTabBar(UIView *root)
 {
     if (!root) return nil;
     NSString *lc = NSStringFromClass(root.class).lowercaseString;
     if (([lc containsString:@"tabbar"] || [root isKindOfClass:[UITabBar class]])
-        && root.subviews.count > 1 && root.bounds.size.width > 100)
-        return root;
+        && root.bounds.size.width > 100) {
+        NSInteger itemCount = 0;
+        for (UIView *v in root.subviews)
+            if ([NSStringFromClass(v.class) containsString:@"TabBarButton"]) itemCount++;
+        if (itemCount >= 2) return root;
+    }
     for (UIView *v in root.subviews) {
         UIView *found = ZXFindTabBar(v);
         if (found) return found;
