@@ -379,6 +379,7 @@ static NSArray<NSDictionary *> *ZXCategories(void)
         @{ @"title": @"Giao diện", @"icon": @"paintbrush", @"desc": @"Nền, kính, hiệu ứng", @"items": @[
             @{ @"key": ZXK_LIQUID_GLASS, @"title": @"Liquid Glass", @"sub": @"Ô menu, nút Thu gọn/Xong và các hàng tính năng dùng kính trong suốt", @"kw": @"kính glass" },
             @{ @"key": ZXK_FLOATING_TABBAR, @"title": @"Thanh tab nổi, kính lỏng (thử nghiệm)", @"sub": @"Biến thanh Tin nhắn/Danh bạ/… dưới cùng thành thanh nổi bo tròn, kính trong suốt. Có thể chưa đổi ngay, quay lại màn hình chính hoặc thoát app để thấy", @"kw": @"tabbar floating pill kính lỏng" },
+            @{ @"action": @"tabbaridle", @"title": @"Thời gian tự thu gọn thanh tab (giây)", @"sub": @"Không chạm vào thanh tab bao lâu thì tự co lại thành nút tròn. Để 0 để tắt tự thu gọn", @"kw": @"tabbar idle thu gọn collapse giây" },
             @{ @"action": @"bgpick", @"title": @"Đổi ảnh nền", @"sub": @"Chọn ảnh từ thư viện, kéo và thu phóng để cắt", @"kw": @"background wallpaper" },
             @{ @"action": @"bgreset", @"title": @"Dùng lại nền phong cảnh" },
         ]},
@@ -715,6 +716,13 @@ static UIColor *ZXAccentText(void) { return [UIColor colorWithRed:0.02 green:0.3
     } else if ([action isEqualToString:@"ttl"]) {
         [self prompt:@"TTL (ms)" text:[NSString stringWithFormat:@"%lld", [ZXConfig ttl]] numeric:YES done:^(NSString *t) {
             [ZXConfig setTTL:t.longLongValue];
+            [weak.tableView reloadData];
+        }];
+    } else if ([action isEqualToString:@"tabbaridle"]) {
+        [self prompt:@"Tự thu gọn sau (giây), 0 = tắt"
+                text:[NSString stringWithFormat:@"%.0f", [ZXConfig tabBarIdleSeconds]]
+             numeric:YES done:^(NSString *t) {
+            [ZXConfig setTabBarIdleSeconds:MAX(0, t.doubleValue)];
             [weak.tableView reloadData];
         }];
     } else if ([action isEqualToString:@"scan"]) {
@@ -1459,11 +1467,12 @@ static void ZXDetachTabBarBlob(UIView *bar)
 
 // ---- auto-collapse to a small circle after being idle ------------------------------------
 //
-// If nobody touches the floating tab bar for 10s, it shrinks away into a small round glass
-// button sitting where its left edge was, showing the current tab's own icon; tapping that
-// button brings the full bar back. Uses a "generation" counter instead of invalidating an
-// NSTimer: every touch bumps the counter and schedules a fresh 10s check, and the check only
-// actually collapses if its own generation is still the latest one when it fires.
+// If nobody touches the floating tab bar for ZXConfig.tabBarIdleSeconds (default 10s, 0 = never),
+// it shrinks away into a small round glass button sitting where its left edge was, showing the
+// current tab's own icon; tapping that button brings the full bar back. Uses a "generation"
+// counter instead of invalidating an NSTimer: every touch bumps the counter and schedules a
+// fresh idle check, and the check only actually collapses if its own generation is still the
+// latest one when it fires.
 
 @interface ZXTabBarCollapser : NSObject
 @property (nonatomic, weak) UIView *bar;
@@ -1479,14 +1488,12 @@ static void ZXDetachTabBarBlob(UIView *bar)
     if (self.pill || !self.bar.superview) return;
     UIButton *b = [UIButton buttonWithType:UIButtonTypeSystem];
     b.hidden = YES;
-    b.clipsToBounds = YES;
+    b.clipsToBounds = YES; // no border/frame around it — just the round glass + icon
     b.backgroundColor = UIColor.clearColor;
-    b.layer.borderWidth = 0.5;
-    b.layer.borderColor = [UIColor colorWithWhite:1 alpha:0.2].CGColor;
     b.layer.shadowColor = UIColor.blackColor.CGColor;
-    b.layer.shadowOpacity = 0.2;
-    b.layer.shadowRadius = 8;
-    b.layer.shadowOffset = CGSizeMake(0, 2);
+    b.layer.shadowOpacity = 0.15;
+    b.layer.shadowRadius = 5;
+    b.layer.shadowOffset = CGSizeMake(0, 1);
 
     UIVisualEffectView *glass = [[UIVisualEffectView alloc] initWithEffect:ZXTabBarGlassEffect()];
     glass.userInteractionEnabled = NO;
@@ -1496,12 +1503,14 @@ static void ZXDetachTabBarBlob(UIView *bar)
 
     UIImageView *iv = [[UIImageView alloc] init];
     iv.tag = 7001;
-    iv.contentMode = UIViewContentModeCenter;
+    iv.contentMode = UIViewContentModeScaleAspectFit; // shrink to fit the small circle, never crop
     iv.translatesAutoresizingMaskIntoConstraints = NO;
     [b addSubview:iv];
     [NSLayoutConstraint activateConstraints:@[
         [iv.centerXAnchor constraintEqualToAnchor:b.centerXAnchor],
         [iv.centerYAnchor constraintEqualToAnchor:b.centerYAnchor],
+        [iv.widthAnchor constraintLessThanOrEqualToConstant:20],
+        [iv.heightAnchor constraintLessThanOrEqualToConstant:20],
     ]];
     [b addTarget:self action:@selector(pillTapped) forControlEvents:UIControlEventTouchUpInside];
     self.pill = b;
@@ -1532,8 +1541,8 @@ static void ZXDetachTabBarBlob(UIView *bar)
     [self ensurePill];
     if (!self.pill) return;
     CGRect f = bar.frame;
-    CGFloat d = f.size.height;
-    self.pill.frame = CGRectMake(f.origin.x, f.origin.y, d, d);
+    CGFloat d = 40; // a small round button, not the full bar height
+    self.pill.frame = CGRectMake(f.origin.x, f.origin.y + (f.size.height - d) / 2, d, d);
     self.pill.layer.cornerRadius = d / 2;
     [self updatePillIcon];
     self.pill.hidden = NO;
@@ -1576,11 +1585,13 @@ static void ZXDetachTabBarBlob(UIView *bar)
 - (void)noteInteraction
 {
     self.idleGeneration++;
+    double secs = [ZXConfig tabBarIdleSeconds];
+    if (secs <= 0) return; // 0 = auto-collapse disabled
     NSInteger gen = self.idleGeneration;
     __weak typeof(self) weakSelf = self;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(10.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(secs * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         __strong typeof(self) strongSelf = weakSelf;
-        if (strongSelf && strongSelf.idleGeneration == gen) [strongSelf collapse];
+        if (strongSelf && strongSelf.idleGeneration == gen && [ZXConfig tabBarIdleSeconds] > 0) [strongSelf collapse];
     });
 }
 @end
@@ -1600,7 +1611,7 @@ static void ZXAttachTabBarCollapser(UIView *bar)
     c = [ZXTabBarCollapser new];
     c.bar = bar;
     objc_setAssociatedObject(bar, &kZXTabBarCollapserKey, c, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    [c noteInteraction]; // starts the first 10s countdown
+    [c noteInteraction]; // starts the first idle countdown
 }
 
 static void ZXDetachTabBarCollapser(UIView *bar)
