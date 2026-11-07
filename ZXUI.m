@@ -278,6 +278,7 @@ static UIVisualEffect *ZXGlassEffect(void);
 static BOOL ZXGlassOn(void);
 static void ZXHookFloatingTabBar(void);
 static BOOL ZXFloatingTabBarOn(void);
+static void ZXNoteTabBarInteraction(UIView *bar); // resets the auto-collapse idle timer, if attached
 
 @interface ZXCardCell : UITableViewCell
 - (void)applyCardStyle;
@@ -1342,6 +1343,7 @@ static CGRect ZXFloatingTabBarFrame(UIView *bar, CGRect proposed)
 @property (nonatomic, weak) UIView *bar;
 @property (nonatomic, weak) UIVisualEffectView *blob;
 @property (nonatomic, weak) UILongPressGestureRecognizer *gesture;
+@property (nonatomic, weak) UIView *startButton; // which button the finger first touched down on
 @end
 
 @implementation ZXTabBarBlob
@@ -1391,13 +1393,22 @@ static CGRect ZXFloatingTabBarFrame(UIView *bar, CGRect proposed)
     UIView *target = [self buttonNearestX:pt.x among:btns];
 
     switch (g.state) {
-        case UIGestureRecognizerStateBegan:
+        case UIGestureRecognizerStateBegan: {
+            self.startButton = target; // remember where the finger first landed
+            [self moveBlobTo:target];
+            ZXNoteTabBarInteraction(bar);
+            break;
+        }
         case UIGestureRecognizerStateChanged: {
             [self moveBlobTo:target];
             break;
         }
         case UIGestureRecognizerStateEnded: {
-            if ([target isKindOfClass:[UIControl class]])
+            // Since this now begins on a plain touch-down (no hold required), a simple tap with
+            // no drag already reaches the real button natively (cancelsTouchesInView = NO), so
+            // only forward a synthetic tap here when the finger actually moved to a *different*
+            // tab than where it started — otherwise a normal tap would fire the tab switch twice.
+            if (target != self.startButton && [target isKindOfClass:[UIControl class]])
                 [(UIControl *)target sendActionsForControlEvents:UIControlEventTouchUpInside];
             [UIView animateWithDuration:0.25 delay:0.12 options:0 animations:^{ self.blob.alpha = 0; } completion:nil];
             break;
@@ -1444,6 +1455,161 @@ static void ZXDetachTabBarBlob(UIView *bar)
     [h.blob removeFromSuperview];
     if (h.gesture) [bar removeGestureRecognizer:h.gesture];
     objc_setAssociatedObject(bar, &kZXTabBarBlobKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+// ---- auto-collapse to a small circle after being idle ------------------------------------
+//
+// If nobody touches the floating tab bar for 10s, it shrinks away into a small round glass
+// button sitting where its left edge was, showing the current tab's own icon; tapping that
+// button brings the full bar back. Uses a "generation" counter instead of invalidating an
+// NSTimer: every touch bumps the counter and schedules a fresh 10s check, and the check only
+// actually collapses if its own generation is still the latest one when it fires.
+
+@interface ZXTabBarCollapser : NSObject
+@property (nonatomic, weak) UIView *bar;
+@property (nonatomic, strong) UIButton *pill;
+@property (nonatomic, assign) BOOL collapsed;
+@property (nonatomic, assign) NSInteger idleGeneration;
+@end
+
+@implementation ZXTabBarCollapser
+
+- (void)ensurePill
+{
+    if (self.pill || !self.bar.superview) return;
+    UIButton *b = [UIButton buttonWithType:UIButtonTypeSystem];
+    b.hidden = YES;
+    b.clipsToBounds = YES;
+    b.backgroundColor = UIColor.clearColor;
+    b.layer.borderWidth = 0.5;
+    b.layer.borderColor = [UIColor colorWithWhite:1 alpha:0.2].CGColor;
+    b.layer.shadowColor = UIColor.blackColor.CGColor;
+    b.layer.shadowOpacity = 0.2;
+    b.layer.shadowRadius = 8;
+    b.layer.shadowOffset = CGSizeMake(0, 2);
+
+    UIVisualEffectView *glass = [[UIVisualEffectView alloc] initWithEffect:ZXTabBarGlassEffect()];
+    glass.userInteractionEnabled = NO;
+    glass.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    glass.frame = b.bounds;
+    [b addSubview:glass];
+
+    UIImageView *iv = [[UIImageView alloc] init];
+    iv.tag = 7001;
+    iv.contentMode = UIViewContentModeCenter;
+    iv.translatesAutoresizingMaskIntoConstraints = NO;
+    [b addSubview:iv];
+    [NSLayoutConstraint activateConstraints:@[
+        [iv.centerXAnchor constraintEqualToAnchor:b.centerXAnchor],
+        [iv.centerYAnchor constraintEqualToAnchor:b.centerYAnchor],
+    ]];
+    [b addTarget:self action:@selector(pillTapped) forControlEvents:UIControlEventTouchUpInside];
+    self.pill = b;
+    [self.bar.superview addSubview:b];
+}
+
+- (void)updatePillIcon
+{
+    UIImageView *iv = [self.pill viewWithTag:7001];
+    UIImage *img = nil;
+    if ([self.bar isKindOfClass:[UITabBar class]]) {
+        UITabBarItem *item = ((UITabBar *)self.bar).selectedItem;
+        img = item.selectedImage ?: item.image;
+    }
+    if (!img && @available(iOS 13.0, *)) img = [UIImage systemImageNamed:@"circle.grid.2x2.fill"];
+    iv.image = [img imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+    iv.tintColor = self.bar.tintColor ?: UIColor.systemBlueColor;
+}
+
+- (void)collapse
+{
+    if (self.collapsed || !ZXFloatingTabBarOn()) return;
+    UIView *bar = self.bar;
+    if (!bar || bar.alpha < 0.5) return; // already hidden/mid-transition
+    self.collapsed = YES;
+    [self ensurePill];
+    if (!self.pill) return;
+    CGRect f = bar.frame;
+    CGFloat d = f.size.height;
+    self.pill.frame = CGRectMake(f.origin.x, f.origin.y, d, d);
+    self.pill.layer.cornerRadius = d / 2;
+    [self updatePillIcon];
+    self.pill.hidden = NO;
+    self.pill.alpha = 0;
+    self.pill.transform = CGAffineTransformMakeScale(0.6, 0.6);
+    bar.userInteractionEnabled = NO;
+    void (^apply)(void) = ^{
+        bar.alpha = 0;
+        self.pill.alpha = 1;
+        self.pill.transform = CGAffineTransformIdentity;
+    };
+    if (ZXReduceMotion()) { apply(); return; }
+    [UIView animateWithDuration:0.4 delay:0 usingSpringWithDamping:0.72 initialSpringVelocity:0.3
+                         options:UIViewAnimationOptionAllowUserInteraction animations:apply completion:nil];
+}
+
+- (void)expand
+{
+    if (!self.collapsed) { [self noteInteraction]; return; }
+    UIView *bar = self.bar;
+    if (!bar) return;
+    self.collapsed = NO;
+    bar.userInteractionEnabled = YES;
+    void (^apply)(void) = ^{
+        bar.alpha = 1;
+        self.pill.alpha = 0;
+        self.pill.transform = CGAffineTransformMakeScale(0.6, 0.6);
+    };
+    void (^done)(BOOL) = ^(BOOL fin) { if (fin) self.pill.hidden = YES; };
+    if (ZXReduceMotion()) { apply(); done(YES); } else {
+        [UIView animateWithDuration:0.4 delay:0 usingSpringWithDamping:0.72 initialSpringVelocity:0.3
+                             options:UIViewAnimationOptionAllowUserInteraction animations:apply completion:done];
+    }
+    [self noteInteraction];
+}
+
+- (void)pillTapped { [self expand]; }
+
+/// Call whenever the person touches the (expanded) bar, to push the auto-collapse back out 10s.
+- (void)noteInteraction
+{
+    self.idleGeneration++;
+    NSInteger gen = self.idleGeneration;
+    __weak typeof(self) weakSelf = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(10.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        __strong typeof(self) strongSelf = weakSelf;
+        if (strongSelf && strongSelf.idleGeneration == gen) [strongSelf collapse];
+    });
+}
+@end
+
+static const char kZXTabBarCollapserKey;
+
+static void ZXNoteTabBarInteraction(UIView *bar)
+{
+    ZXTabBarCollapser *c = objc_getAssociatedObject(bar, &kZXTabBarCollapserKey);
+    [c noteInteraction];
+}
+
+static void ZXAttachTabBarCollapser(UIView *bar)
+{
+    ZXTabBarCollapser *c = objc_getAssociatedObject(bar, &kZXTabBarCollapserKey);
+    if (c) return;
+    c = [ZXTabBarCollapser new];
+    c.bar = bar;
+    objc_setAssociatedObject(bar, &kZXTabBarCollapserKey, c, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    [c noteInteraction]; // starts the first 10s countdown
+}
+
+static void ZXDetachTabBarCollapser(UIView *bar)
+{
+    ZXTabBarCollapser *c = objc_getAssociatedObject(bar, &kZXTabBarCollapserKey);
+    if (!c) return;
+    c.idleGeneration++; // invalidates any pending collapse check
+    [c.pill removeFromSuperview];
+    bar.alpha = 1;
+    bar.userInteractionEnabled = YES;
+    objc_setAssociatedObject(bar, &kZXTabBarCollapserKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
 static void ZXStyleTabBarOnce(UIView *bar)
@@ -1525,9 +1691,11 @@ static void ZXApplyFloatingTabBarState(UIView *bar)
         CGRect full = bar.superview ? bar.superview.bounds : bar.frame;
         bar.frame = ZXFloatingTabBarFrame(bar, full); // runs through our swizzled -setFrame: below
         ZXAttachTabBarBlob(bar);
+        ZXAttachTabBarCollapser(bar);
     } else {
         ZXUnstyleTabBar(bar);
         ZXDetachTabBarBlob(bar);
+        ZXDetachTabBarCollapser(bar);
         [bar setNeedsLayout];
     }
 }
