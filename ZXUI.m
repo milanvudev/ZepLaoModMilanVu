@@ -1545,6 +1545,32 @@ static void ZXHookFloatingTabBar(void)
     });
     if (!class_addMethod(cls, sel, newImp, method_getTypeEncoding(m)))
         method_setImplementation(m, newImp);
+
+    // Zalo pins this bar to its superview with Auto Layout constraints (full width, bottom
+    // edge), so most of the time UIKit's constraint solver sets its bounds/center directly
+    // instead of calling -setFrame: at all — our swizzle above never even runs, and the bar
+    // snaps right back to full-width/edge-to-edge on the very next layout pass (rotation, a
+    // cell loading, anything). Swizzling -layoutSubviews catches that: once Auto Layout has
+    // finished positioning the bar for this pass, we re-apply our floating frame on top of
+    // whatever it just computed, using the superview's bounds (not our own possibly-already-
+    // shrunk frame) as the reference so this stays stable instead of shrinking a little more
+    // on every single pass.
+    SEL layoutSel = @selector(layoutSubviews);
+    Method lm = class_getInstanceMethod(cls, layoutSel);
+    if (lm) {
+        IMP origLayout = method_getImplementation(lm);
+        IMP newLayoutImp = imp_implementationWithBlock(^(UIView *self_) {
+            ((void (*)(id, SEL))origLayout)(self_, layoutSel);
+            if (ZXFloatingTabBarOn()) {
+                CGRect full = self_.superview ? self_.superview.bounds : self_.frame;
+                CGRect want = ZXFloatingTabBarFrame(self_, full);
+                if (!CGRectEqualToRect(self_.frame, want)) self_.frame = want;
+            }
+        });
+        if (!class_addMethod(cls, layoutSel, newLayoutImp, method_getTypeEncoding(lm)))
+            method_setImplementation(lm, newLayoutImp);
+    }
+
     [hooked addObject:clsName];
     ZXLog(@"floating tab bar hooked on %@", clsName);
     ZXApplyFloatingTabBarState(bar);
