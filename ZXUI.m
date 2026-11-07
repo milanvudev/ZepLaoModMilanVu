@@ -1369,6 +1369,10 @@ static CGRect ZXFloatingTabBarFrame(UIView *bar, CGRect proposed)
 - (void)handlePress:(UILongPressGestureRecognizer *)g
 {
     UIView *bar = self.bar;
+    // Temporary diagnostic: tells us from the log whether the gesture is firing at all, and if
+    // not, which guard (no bar / floating off / Reduce Motion on) is bailing it out early.
+    ZXLog(@"tab bar press: state=%ld bar=%@ floatingOn=%d reduceMotion=%d",
+          (long)g.state, bar, ZXFloatingTabBarOn(), ZXReduceMotion());
     if (!bar || !ZXFloatingTabBarOn() || ZXReduceMotion()) { self.blob.alpha = 0; return; }
     CGPoint pt = [g locationInView:bar];
     NSArray<UIView *> *btns = [self buttonsSortedByX];
@@ -1419,6 +1423,8 @@ static void ZXAttachTabBarBlob(UIView *bar)
     [bar addGestureRecognizer:g];
     h.gesture = g;
     objc_setAssociatedObject(bar, &kZXTabBarBlobKey, h, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    ZXLog(@"tab bar blob attached: userInteractionEnabled=%d gestureCount=%lu",
+          bar.userInteractionEnabled, (unsigned long)bar.gestureRecognizers.count);
 }
 
 static void ZXDetachTabBarBlob(UIView *bar)
