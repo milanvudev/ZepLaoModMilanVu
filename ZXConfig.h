@@ -25,6 +25,10 @@
 + (void)setBool:(BOOL)value forKey:(NSString *)key;
 + (long long)ttl;
 + (void)setTTL:(long long)value;
+/// Seconds of no touch on the floating tab bar before it auto-collapses to the small round
+/// button. 0 means "never collapse".
++ (double)tabBarIdleSeconds;
++ (void)setTabBarIdleSeconds:(double)value;
 + (NSString *)currentUserID;
 + (void)setCurrentUserID:(NSString *)value;
 /// Documents/ZaloXposed (created on demand)
