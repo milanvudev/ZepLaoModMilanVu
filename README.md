@@ -2,7 +2,7 @@
 
 **Tweak Theos cho Zalo iOS** — bản port lấy cảm hứng từ [ZaloXposed](https://github.com/ElectroHeavenVN/ZaloXposed) (Android), viết lại hoàn toàn bằng Objective-C runtime cho `vn.com.vng.zingalo`.
 
-> ⚠️ Chỉ dùng cho mục đích cá nhân, học tập. Yêu cầu máy đã jailbreak (rootful/rootless) hoặc sideload qua Sideloadly/TrollStore tuỳ bản build.
+> ⚠️ Chỉ dùng cho mục đích cá nhân, học tập. Yêu cầu phải có iPhone
 
 ---
 
