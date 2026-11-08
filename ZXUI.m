@@ -1789,6 +1789,45 @@ static void ZXHookFloatingTabBar(void)
             method_setImplementation(lm, newLayoutImp);
     }
 
+    // Zalo can recreate or re-attach a tab bar of this same class later (returning from a
+    // modal/settings screen, a memory-pressure teardown, ...) without our discovery loop ever
+    // running again on it — that loop only fires for the first 60s after launch plus app-
+    // foreground events. The two swizzles above still force a fresh instance's *frame* into the
+    // floating shape (they are installed class-wide), but ZXStyleTabBarOnce's transparent
+    // background/corner radius and the blob/collapser only ever get attached through
+    // ZXApplyFloatingTabBarState, which that fresh instance would never receive. The visible
+    // result was a correctly-sized-but-still-opaque, square, full-width bar on screens reached
+    // a while after launch. Swizzling -didMoveToWindow catches every instance the moment it
+    // joins a window, however/whenever it was created, and (re)applies the full floating state.
+    SEL windowSel = @selector(didMoveToWindow);
+    Method wm = class_getInstanceMethod(cls, windowSel);
+    if (wm) {
+        IMP origWindow = method_getImplementation(wm);
+        IMP newWindowImp = imp_implementationWithBlock(^(UIView *self_) {
+            ((void (*)(id, SEL))origWindow)(self_, windowSel);
+            if (self_.window) ZXApplyFloatingTabBarState(self_);
+        });
+        if (!class_addMethod(cls, windowSel, newWindowImp, method_getTypeEncoding(wm)))
+            method_setImplementation(wm, newWindowImp);
+    }
+
+    // The collapsed pill is a sibling view, not a subview of the bar, so it does not hide
+    // automatically along with it on screens where Zalo deliberately hides the real bar (a
+    // photo viewer, a pushed detail screen, ...). ZXTabBarCollapser already has the method for
+    // this (syncWithBarHidden:) — it just needed something to actually call it on every hide/
+    // show, which this swizzle provides.
+    SEL hiddenSel = @selector(setHidden:);
+    Method hm = class_getInstanceMethod(cls, hiddenSel);
+    if (hm) {
+        IMP origHidden = method_getImplementation(hm);
+        IMP newHiddenImp = imp_implementationWithBlock(^(UIView *self_, BOOL hidden) {
+            ((void (*)(id, SEL, BOOL))origHidden)(self_, hiddenSel, hidden);
+            ZXSyncTabBarVisibility(self_);
+        });
+        if (!class_addMethod(cls, hiddenSel, newHiddenImp, method_getTypeEncoding(hm)))
+            method_setImplementation(hm, newHiddenImp);
+    }
+
     [hooked addObject:clsName];
     ZXLog(@"floating tab bar hooked on %@", clsName);
     ZXApplyFloatingTabBarState(bar);
